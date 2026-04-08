@@ -35,27 +35,6 @@ export const questions = [
     type: "single",
   },
   {
-    id: 6,
-    section: "생태계의 구조",
-    prompt: "생태계의 구조를 작은 단계에서 큰 단계 순으로 쓰시오.",
-    answers: ["개체", "개체군", "군집"],
-    type: "multi",
-  },
-  {
-    id: 7,
-    section: "생태계구성요소",
-    prompt: "생태계 내의 모든 생물을 통틀어 이르는 말은 무엇인가?",
-    answers: ["생물요소"],
-    type: "single",
-  },
-  {
-    id: 8,
-    section: "생태계구성요소",
-    prompt: "빛, 공기, 물, 온도, 토양처럼 생물을 둘러싼 무기 환경을 무엇이라고 하는가?",
-    answers: ["비생물요소"],
-    type: "single",
-  },
-  {
     id: 9,
     section: "생태계구성요소",
     prompt: "생물요소를 역할에 따라 세 가지로 구분하여 쓰시오.",
@@ -90,55 +69,7 @@ export const questions = [
     answers: ["세균", "곰팡이"],
     type: "multi",
   },
-  {
-    id: 14,
-    section: "생태계구성요소 간의 관계",
-    prompt: "낙엽이 썩어 토양이 비옥해지는 것은 어느 방향의 상호작용 사례인가?",
-    answers: ["생물요소에서 비생물요소", "생물요소 → 비생물요소", "생물요소→비생물요소"],
-    type: "any",
-  },
-  {
-    id: 15,
-    section: "생태계구성요소 간의 관계",
-    prompt: "식물의 뿌리로 인해 토양이 풍화 작용을 촉진하는 것은 어느 방향의 상호작용 사례인가?",
-    answers: ["생물요소에서 비생물요소", "생물요소 → 비생물요소", "생물요소→비생물요소"],
-    type: "any",
-  },
-  {
-    id: 16,
-    section: "생태계구성요소 간의 관계",
-    prompt: "지렁이의 활동으로 토양의 통기성이 좋아지는 사례에서 변화된 비생물요소는 무엇인가?",
-    answers: ["토양"],
-    type: "single",
-  },
-  {
-    id: 17,
-    section: "생태계구성요소 간의 관계",
-    prompt: "잎이 햇빛을 받아 양분을 만드는 사례에서 상호작용하는 두 요소를 순서대로 쓰시오.",
-    answers: ["느티나무", "햇빛"],
-    type: "multi",
-  },
-  {
-    id: 18,
-    section: "생태계구성요소 간의 관계",
-    prompt: "붉은여우가 물속의 물고기를 잡아먹는 사례에서 관계를 이루는 두 생물을 쓰시오.",
-    answers: ["붉은여우", "물고기"],
-    type: "multi",
-  },
-  {
-    id: 19,
-    section: "생태계구성요소 간의 관계",
-    prompt: "염소가 풀을 뜯어 먹는 관계는 생물요소 사이의 어떤 관계에 해당하는가?",
-    answers: ["포식", "섭식"],
-    type: "any",
-  },
-  {
-    id: 20,
-    section: "생태계구성요소 간의 관계",
-    prompt: "나무 위에 버섯이 자라는 예에서 버섯은 생태계 구성 요소 중 어디에 해당하는가?",
-    answers: ["분해자"],
-    type: "single",
-  },
+
   {
     id: 21,
     section: "물질 순환과 에너지 흐름",
@@ -160,13 +91,7 @@ export const questions = [
     answers: ["에너지"],
     type: "single",
   },
-  {
-    id: 24,
-    section: "물질 순환과 에너지 흐름",
-    prompt: "생태계 내에서 유기물을 생산하고, 소비하며, 분해하는 세 집단을 순서대로 쓰시오.",
-    answers: ["생산자", "소비자", "분해자"],
-    type: "multi",
-  },
+
   {
     id: 25,
     section: "물질 순환과 에너지 흐름",
@@ -181,13 +106,7 @@ export const questions = [
     answers: ["분해자"],
     type: "single",
   },
-  {
-    id: 27,
-    section: "물질 순환과 에너지 흐름",
-    prompt: "생태계가 유지되기 위해 외부로부터 지속적으로 공급되어야 하는 것은 무엇인가?",
-    answers: ["태양의 빛에너지", "태양 에너지", "태양빛 에너지"],
-    type: "any",
-  },
+
   {
     id: 28,
     section: "물질 순환과 에너지 흐름",
@@ -195,20 +114,7 @@ export const questions = [
     answers: ["광합성", "호흡", "배설"],
     type: "multi",
   },
-  {
-    id: 29,
-    section: "물질 순환과 에너지 흐름",
-    prompt: "식물이 유기물에 저장한 에너지를 이용해 다양한 생명 활동을 하는 데 쓰이는 에너지를 무엇이라고 하는가?",
-    answers: ["화학 에너지"],
-    type: "single",
-  },
-  {
-    id: 30,
-    section: "물질 순환",
-    prompt: "생태계에서 생명 활동에 필수적인 원소로 제시된 네 가지를 쓰시오.",
-    answers: ["탄소", "수소", "산소", "질소"],
-    type: "multi",
-  },
+
   {
     id: 31,
     section: "탄소순환",
@@ -307,13 +213,7 @@ export const questions = [
     answers: ["단백질", "핵산"],
     type: "multi",
   },
-  {
-    id: 45,
-    section: "질소순환",
-    prompt: "생물의 사체와 배설물에 포함된 질소 화합물이 다시 암모늄 이온으로 바뀌는 과정을 무엇이라고 하는가?",
-    answers: ["질소 화합물의 분해", "분해"],
-    type: "any",
-  },
+
   {
     id: 46,
     section: "질소순환",
@@ -342,11 +242,5 @@ export const questions = [
     answers: ["부영양화"],
     type: "single",
   },
-  {
-    id: 50,
-    section: "핵심 개념 종합",
-    prompt: "생태계를 구성하는 모든 생물과 생물을 둘러싼 무기 환경을 각각 무엇이라고 하는지 순서대로 쓰시오.",
-    answers: ["생물요소", "비생물요소"],
-    type: "multi",
-  },
+
 ];

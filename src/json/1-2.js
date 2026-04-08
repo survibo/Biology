@@ -20,13 +20,7 @@ export const questions = [
     answers: ["소량"],
     type: "single",
   },
-  {
-    id: 4,
-    section: "물질대사",
-    prompt: "생명체 밖의 화학 반응과 생명체 안의 화학 반응을 비교할 때, 생명체 안의 반응에는 반드시 __________가 필요하다.",
-    answers: ["효소"],
-    type: "single",
-  },
+
   {
     id: 5,
     section: "물질대사",
@@ -34,13 +28,7 @@ export const questions = [
     answers: ["고온", "고압"],
     type: "multi",
   },
-  {
-    id: 6,
-    section: "물질대사",
-    prompt: "생명체 안의 화학 반응은 대체로 체온인 약 ________ ℃ 정도에서 일어난다.",
-    answers: ["37"],
-    type: "single",
-  },
+
   {
     id: 7,
     section: "물질대사",
@@ -62,20 +50,7 @@ export const questions = [
     answers: ["흡수", "방출"],
     type: "multi",
   },
-  {
-    id: 10,
-    section: "물질대사",
-    prompt: "반응물의 에너지양과 생성물의 에너지양을 비교할 때, 동화작용에서는 생성물의 에너지양이 반응물보다 __________.",
-    answers: ["크다"],
-    type: "single",
-  },
-  {
-    id: 11,
-    section: "물질대사",
-    prompt: "반응물의 에너지양과 생성물의 에너지양을 비교할 때, 이화작용에서는 생성물의 에너지양이 반응물보다 __________.",
-    answers: ["적다"],
-    type: "single",
-  },
+
   {
     id: 12,
     section: "물질대사",
@@ -104,13 +79,7 @@ export const questions = [
     answers: ["이화작용"],
     type: "single",
   },
-  {
-    id: 16,
-    section: "물질대사",
-    prompt: "물질대사는 효소가 관여하므로 체온 범위의 __________ 온도에서 신속하게 일어난다.",
-    answers: ["낮은"],
-    type: "single",
-  },
+
   {
     id: 17,
     section: "물질대사",
@@ -137,27 +106,6 @@ export const questions = [
     section: "물질대사",
     prompt: "이산화 탄소와 물을 이용해 포도당을 만드는 과정은 __________의 예이다.",
     answers: ["동화작용"],
-    type: "single",
-  },
-  {
-    id: 21,
-    section: "물질대사",
-    prompt: "생명체 안의 화학 반응은 여러 단계로 진행되어 에너지가 __________씩 방출되거나 흡수된다.",
-    answers: ["소량"],
-    type: "single",
-  },
-  {
-    id: 22,
-    section: "물질대사",
-    prompt: "생명체 밖의 연소와 달리, 세포호흡은 반응이 __________적으로 일어난다.",
-    answers: ["단계"],
-    type: "single",
-  },
-  {
-    id: 23,
-    section: "물질대사",
-    prompt: "생명체 안의 화학 반응에서 에너지 출입이 일어나는 과정에는 반드시 __________ 변화가 수반된다.",
-    answers: ["에너지"],
     type: "single",
   },
   {
@@ -266,40 +214,13 @@ export const questions = [
     type: "single",
   },
   {
-    id: 39,
-    section: "에너지의 전환과 사용",
-    prompt: "ATP와 ADP의 전환을 건전지에 비유할 때, ATP는 __________된 건전지에 해당한다.",
-    answers: ["충전"],
-    type: "single",
-  },
-  {
-    id: 40,
-    section: "에너지의 전환과 사용",
-    prompt: "ATP와 ADP의 전환을 건전지에 비유할 때, ADP는 __________된 건전지에 해당한다.",
-    answers: ["방전"],
-    type: "single",
-  },
-  {
     id: 41,
     section: "에너지의 전환과 사용",
     prompt: "근육 수축에서는 ATP의 화학 에너지가 __________ 에너지로 전환된다.",
     answers: ["기계적"],
     type: "single",
   },
-  {
-    id: 42,
-    section: "에너지의 전환과 사용",
-    prompt: "세포호흡 과정에서 방출된 에너지 중 약 ________%는 ATP에 저장되지 못하고 열에너지로 방출되어 체온 유지에 이용된다.",
-    answers: ["66"],
-    type: "single",
-  },
-  {
-    id: 43,
-    section: "에너지의 전환과 사용",
-    prompt: "성장 과정에서 물질 합성이 일어날 때 ATP의 화학 에너지는 생성물의 __________ 에너지로 전환된다.",
-    answers: ["화학"],
-    type: "single",
-  },
+
   {
     id: 44,
     section: "에너지의 전환과 사용",
@@ -322,31 +243,11 @@ export const questions = [
     type: "multi",
   },
   {
-    id: 47,
-    section: "에너지의 전환과 사용",
-    prompt: "유기 영양소에 저장된 화학 에너지가 생명활동에 직접 이용되기 전에 거치는 대표적 에너지 저장 물질은 __________이다.",
-    answers: ["ATP"],
-    type: "any",
-  },
-  {
-    id: 48,
-    section: "에너지의 전환과 사용",
-    prompt: "체온 유지, 정신 활동, 성장, 근육 수축은 모두 ATP가 분해될 때 방출되는 __________를 이용하는 생명활동이다.",
-    answers: ["에너지"],
-    type: "single",
-  },
-  {
     id: 49,
     section: "에너지의 전환과 사용",
     prompt: "세포호흡에서 주된 반응물 두 가지는 __________, __________이다.",
     answers: ["포도당", "산소"],
     type: "multi",
   },
-  {
-    id: 50,
-    section: "에너지의 전환과 사용",
-    prompt: "세포호흡과 ATP의 관계를 가장 간단히 쓰면, 세포호흡으로 에너지를 얻어 __________를 만들고 이것이 생명활동에 사용된다.",
-    answers: ["ATP"],
-    type: "any",
-  },
+
 ];

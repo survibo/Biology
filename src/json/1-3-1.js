@@ -195,13 +195,7 @@ export const questions = [
     answers: ["지방"],
     type: "single",
   },
-  {
-    id: 29,
-    section: "순환계의 구조",
-    prompt: "사람의 심장은 대략 어느 정도 크기의 기관인가?",
-    answers: ["주먹만 한 크기", "주먹 크기"],
-    type: "any",
-  },
+
   {
     id: 30,
     section: "순환계의 구조",
@@ -294,13 +288,6 @@ export const questions = [
     type: "single",
   },
   {
-    id: 43,
-    section: "혈관의 종류",
-    prompt: "혈관 그림에서 혈액의 흐름을 기준으로 올바른 순서를 쓰시오.",
-    answers: ["동맥", "모세혈관", "정맥"],
-    type: "multi",
-  },
-  {
     id: 44,
     section: "혈액 순환 경로",
     prompt: "산소가 풍부한 혈액이 온몸의 조직으로 나가기 직전에 들어 있는 심장 방은 어디인가?",
@@ -341,12 +328,5 @@ export const questions = [
     prompt: "조직 세포에서 만들어진 질소 노폐물은 결국 어떤 기관으로 운반되어 배출 준비가 되는가?",
     answers: ["콩팥"],
     type: "single",
-  },
-  {
-    id: 50,
-    section: "통합",
-    prompt: "다음 물질 중 순환계를 통해 조직 세포로 공급되는 것과 조직 세포로부터 회수되는 것을 각각 모두 쓰시오. 공급: 2가지, 회수: 2가지",
-    answers: ["산소", "영양소", "노폐물", "이산화 탄소"],
-    type: "multi",
   },
 ];
