@@ -339,11 +339,6 @@ export default function BiologyFillInQuiz() {
         {!loading &&
           grouped.map(([section, items]) => (
             <Card key={section} className="rounded-2xl shadow-sm">
-              {!isShuffled && (
-                <CardHeader>
-                  <CardTitle className="text-xl">{section}</CardTitle>
-                </CardHeader>
-              )}
               <CardContent className="space-y-4">
                 {items.map((q) => (
                   <div key={q.id} className="rounded-2xl border bg-white p-4">
