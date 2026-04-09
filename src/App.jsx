@@ -35,6 +35,15 @@ function buildInitialAnswers(questions) {
   return Object.fromEntries((questions || []).map((q) => [q.id, ""]));
 }
 
+function shuffleArray(items) {
+  const shuffled = [...items];
+  for (let i = shuffled.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
 export default function BiologyFillInQuiz() {
   const fileOptions = useMemo(() => {
     return Object.keys(questionModules)
@@ -56,6 +65,8 @@ export default function BiologyFillInQuiz() {
   const [submitted, setSubmitted] = useState(false);
   const [showAnswers, setShowAnswers] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [isShuffled, setIsShuffled] = useState(false);
+  const [shuffledQuestionIds, setShuffledQuestionIds] = useState([]);
 
   useEffect(() => {
     async function loadQuestions() {
@@ -70,10 +81,14 @@ export default function BiologyFillInQuiz() {
         setSubmitted(false);
         setShowAnswers(false);
         setCopied(false);
+        setIsShuffled(false);
+        setShuffledQuestionIds([]);
       } catch (err) {
         console.error("문제 파일 로드 실패:", err);
         setQuestions([]);
         setUserAnswers({});
+        setIsShuffled(false);
+        setShuffledQuestionIds([]);
       } finally {
         setLoading(false);
       }
@@ -112,14 +127,27 @@ export default function BiologyFillInQuiz() {
     return `${JSON.stringify(wrongQuestions, null, 2)};`;
   }, [wrongQuestions]);
 
+  const orderedResults = useMemo(() => {
+    if (!isShuffled) return results;
+
+    const resultMap = new Map(results.map((q) => [q.id, q]));
+    const shuffled = shuffledQuestionIds.map((id) => resultMap.get(id)).filter(Boolean);
+
+    return shuffled.length === results.length ? shuffled : shuffleArray(results);
+  }, [isShuffled, results, shuffledQuestionIds]);
+
   const grouped = useMemo(() => {
+    if (isShuffled) {
+      return [["__shuffled__", orderedResults]];
+    }
+
     const map = new Map();
     for (const q of results) {
       if (!map.has(q.section)) map.set(q.section, []);
       map.get(q.section).push(q);
     }
     return Array.from(map.entries());
-  }, [results]);
+  }, [isShuffled, orderedResults, results]);
 
   const handleChange = (id, value) => {
     setUserAnswers((prev) => ({ ...prev, [id]: value }));
@@ -149,6 +177,17 @@ export default function BiologyFillInQuiz() {
     setSubmitted(false);
     setShowAnswers(false);
     setCopied(false);
+  };
+
+  const toggleShuffle = () => {
+    if (isShuffled) {
+      setIsShuffled(false);
+      setShuffledQuestionIds([]);
+      return;
+    }
+
+    setShuffledQuestionIds(shuffleArray(questions.map((q) => q.id)));
+    setIsShuffled(true);
   };
 
   const copyWrongQuestionsJson = async () => {
@@ -209,6 +248,14 @@ export default function BiologyFillInQuiz() {
                     disabled={loading || !questions.length}
                   >
                     예시 입력
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={toggleShuffle}
+                    className="rounded-xl"
+                    disabled={loading || !questions.length}
+                  >
+                    {isShuffled ? "기본 순서" : "셔플"}
                   </Button>
                 </div>
               </div>
@@ -292,9 +339,11 @@ export default function BiologyFillInQuiz() {
         {!loading &&
           grouped.map(([section, items]) => (
             <Card key={section} className="rounded-2xl shadow-sm">
-              <CardHeader>
-                <CardTitle className="text-xl">{section}</CardTitle>
-              </CardHeader>
+              {!isShuffled && (
+                <CardHeader>
+                  <CardTitle className="text-xl">{section}</CardTitle>
+                </CardHeader>
+              )}
               <CardContent className="space-y-4">
                 {items.map((q) => (
                   <div key={q.id} className="rounded-2xl border bg-white p-4">
