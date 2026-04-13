@@ -12,7 +12,30 @@ import {
   Copy,
 } from "lucide-react";
 
-const questionModules = import.meta.glob("./json/*.js");
+const questionModules = import.meta.glob(["./json/*.js", "!./json/*.wrong.js"]);
+const ALL_RANDOM_VALUE = "__all_random__";
+
+function isWrongQuestionFile(path) {
+  return path.endsWith(".wrong.js");
+}
+
+function getFileLabel(path) {
+  return path.split("/").pop()?.replace(".js", "") || path;
+}
+
+function prepareQuestions(questions, sourceFile) {
+  return (questions || []).map((q, index) => ({
+    ...q,
+    originalId: q.id,
+    sourceFile,
+    questionKey: `${sourceFile}::${q.id}::${index}`,
+  }));
+}
+
+function clampQuestionCount(count, total) {
+  if (!total) return 0;
+  return Math.min(Math.max(count, 1), total);
+}
 
 function normalize(text) {
   return (text || "")
@@ -32,7 +55,7 @@ function isCorrect(input, answers, type) {
 }
 
 function buildInitialAnswers(questions) {
-  return Object.fromEntries((questions || []).map((q) => [q.id, ""]));
+  return Object.fromEntries((questions || []).map((q) => [q.questionKey, ""]));
 }
 
 function shuffleArray(items) {
@@ -47,12 +70,12 @@ function shuffleArray(items) {
 export default function BiologyFillInQuiz() {
   const fileOptions = useMemo(() => {
     return Object.keys(questionModules)
+      .filter((path) => !isWrongQuestionFile(path))
       .sort()
       .map((path) => {
-        const fileName = path.split("/").pop()?.replace(".js", "") || path;
         return {
           value: path,
-          label: fileName,
+          label: getFileLabel(path),
         };
       });
   }, []);
@@ -60,6 +83,9 @@ export default function BiologyFillInQuiz() {
   const [selectedFile, setSelectedFile] = useState(fileOptions[0]?.value || "");
   const [questions, setQuestions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [totalPoolSize, setTotalPoolSize] = useState(0);
+  const [allRandomCountInput, setAllRandomCountInput] = useState("20");
+  const [randomDrawVersion, setRandomDrawVersion] = useState(0);
 
   const [userAnswers, setUserAnswers] = useState({});
   const [submitted, setSubmitted] = useState(false);
@@ -67,15 +93,40 @@ export default function BiologyFillInQuiz() {
   const [copied, setCopied] = useState(false);
   const [isShuffled, setIsShuffled] = useState(false);
   const [shuffledQuestionIds, setShuffledQuestionIds] = useState([]);
+  const isAllRandomMode = selectedFile === ALL_RANDOM_VALUE;
+  const requestedRandomCount = useMemo(() => {
+    const parsed = Number.parseInt(allRandomCountInput, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+  }, [allRandomCountInput]);
 
   useEffect(() => {
     async function loadQuestions() {
-      if (!selectedFile || !questionModules[selectedFile]) return;
+      if (!selectedFile) return;
 
       setLoading(true);
       try {
-        const mod = await questionModules[selectedFile]();
-        const loadedQuestions = mod.questions || [];
+        let loadedQuestions = [];
+
+        if (selectedFile === ALL_RANDOM_VALUE) {
+          const validPaths = Object.keys(questionModules)
+            .filter((path) => !isWrongQuestionFile(path))
+            .sort();
+          const modules = await Promise.all(validPaths.map((path) => questionModules[path]()));
+          const mergedQuestions = modules.flatMap((mod, index) =>
+            prepareQuestions(mod.questions || [], getFileLabel(validPaths[index]))
+          );
+          const sampleCount = clampQuestionCount(requestedRandomCount, mergedQuestions.length);
+
+          loadedQuestions = shuffleArray(mergedQuestions).slice(0, sampleCount);
+          setTotalPoolSize(mergedQuestions.length);
+        } else if (questionModules[selectedFile]) {
+          const mod = await questionModules[selectedFile]();
+          loadedQuestions = prepareQuestions(mod.questions || [], getFileLabel(selectedFile));
+          setTotalPoolSize(loadedQuestions.length);
+        } else {
+          setTotalPoolSize(0);
+        }
+
         setQuestions(loadedQuestions);
         setUserAnswers(buildInitialAnswers(loadedQuestions));
         setSubmitted(false);
@@ -86,6 +137,7 @@ export default function BiologyFillInQuiz() {
       } catch (err) {
         console.error("문제 파일 로드 실패:", err);
         setQuestions([]);
+        setTotalPoolSize(0);
         setUserAnswers({});
         setIsShuffled(false);
         setShuffledQuestionIds([]);
@@ -95,13 +147,13 @@ export default function BiologyFillInQuiz() {
     }
 
     loadQuestions();
-  }, [selectedFile]);
+  }, [selectedFile, requestedRandomCount, randomDrawVersion]);
 
   const results = useMemo(() => {
     return questions.map((q) => ({
       ...q,
-      userAnswer: userAnswers[q.id] || "",
-      correct: isCorrect(userAnswers[q.id], q.answers, q.type),
+      userAnswer: userAnswers[q.questionKey] || "",
+      correct: isCorrect(userAnswers[q.questionKey], q.answers, q.type),
     }));
   }, [questions, userAnswers]);
 
@@ -114,12 +166,13 @@ export default function BiologyFillInQuiz() {
     if (!submitted) return [];
     return results
       .filter((r) => !r.correct)
-      .map(({ id, section, prompt, answers, type }) => ({
-        id,
+      .map(({ originalId, section, prompt, answers, type, sourceFile }) => ({
+        id: originalId,
         section,
         prompt,
         answers,
         type,
+        sourceFile,
       }));
   }, [results, submitted]);
 
@@ -130,14 +183,14 @@ export default function BiologyFillInQuiz() {
   const orderedResults = useMemo(() => {
     if (!isShuffled) return results;
 
-    const resultMap = new Map(results.map((q) => [q.id, q]));
+    const resultMap = new Map(results.map((q) => [q.questionKey, q]));
     const shuffled = shuffledQuestionIds.map((id) => resultMap.get(id)).filter(Boolean);
 
     return shuffled.length === results.length ? shuffled : shuffleArray(results);
   }, [isShuffled, results, shuffledQuestionIds]);
 
   const grouped = useMemo(() => {
-    if (isShuffled) {
+    if (isShuffled || isAllRandomMode) {
       return [["__shuffled__", orderedResults]];
     }
 
@@ -147,7 +200,7 @@ export default function BiologyFillInQuiz() {
       map.get(q.section).push(q);
     }
     return Array.from(map.entries());
-  }, [isShuffled, orderedResults, results]);
+  }, [isAllRandomMode, isShuffled, orderedResults, results]);
 
   const handleChange = (id, value) => {
     setUserAnswers((prev) => ({ ...prev, [id]: value }));
@@ -186,8 +239,12 @@ export default function BiologyFillInQuiz() {
       return;
     }
 
-    setShuffledQuestionIds(shuffleArray(questions.map((q) => q.id)));
+    setShuffledQuestionIds(shuffleArray(questions.map((q) => q.questionKey)));
     setIsShuffled(true);
+  };
+
+  const redrawAllRandomQuestions = () => {
+    setRandomDrawVersion((prev) => prev + 1);
   };
 
   const copyWrongQuestionsJson = async () => {
@@ -212,7 +269,7 @@ export default function BiologyFillInQuiz() {
                     생명과학 단답·빈칸채우기
                   </CardTitle>
                   <p className="mt-2 text-sm text-slate-600">
-                    문제 파일을 페이지 안에서 선택해서 불러올 수 있습니다.
+                    문제 파일 하나를 선택하거나, 전체 JSON에서 랜덤으로 원하는 수만큼 뽑아 풀 수 있습니다.
                   </p>
                 </div>
 
@@ -260,21 +317,68 @@ export default function BiologyFillInQuiz() {
                 </div>
               </div>
 
+              <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_220px]">
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-700">
+                    문제 파일 선택
+                  </label>
+                  <select
+                    value={selectedFile}
+                    onChange={(e) => setSelectedFile(e.target.value)}
+                    className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none"
+                  >
+                    <option value={ALL_RANDOM_VALUE}>전체 랜덤 (wrong.js 제외)</option>
+                    {fileOptions.map((file) => (
+                      <option key={file.value} value={file.value}>
+                        {file.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-700">
+                    랜덤 출제 수
+                  </label>
+                  <div className="flex gap-2">
+                    <Input
+                      type="number"
+                      min="1"
+                      value={allRandomCountInput}
+                      onChange={(e) =>
+                        setAllRandomCountInput(e.target.value.replace(/[^\d]/g, ""))
+                      }
+                      disabled={!isAllRandomMode}
+                      className="h-10"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={redrawAllRandomQuestions}
+                      disabled={!isAllRandomMode || loading}
+                      className="rounded-xl"
+                    >
+                      다시 뽑기
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              {isAllRandomMode && (
+                <div className="text-sm text-slate-600">
+                  전체 {totalPoolSize}문제 중 {questions.length}문항을 랜덤으로 출제합니다.
+                </div>
+              )}
+
               <div className="max-w-sm">
                 <label className="mb-2 block text-sm font-medium text-slate-700">
-                  문제 파일 선택
+                  현재 출제 방식
                 </label>
-                <select
-                  value={selectedFile}
-                  onChange={(e) => setSelectedFile(e.target.value)}
-                  className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none"
-                >
-                  {fileOptions.map((file) => (
-                    <option key={file.value} value={file.value}>
-                      {file.label}
-                    </option>
-                  ))}
-                </select>
+                <div className="flex h-10 items-center rounded-xl border border-slate-300 bg-slate-50 px-3 text-sm text-slate-700">
+                  {isAllRandomMode
+                    ? `전체 랜덤 ${clampQuestionCount(requestedRandomCount, totalPoolSize || requestedRandomCount)}문항`
+                    : getFileLabel(selectedFile)}
+                </div>
               </div>
             </div>
           </CardHeader>
@@ -341,11 +445,16 @@ export default function BiologyFillInQuiz() {
             <Card key={section} className="rounded-2xl shadow-sm">
               <CardContent className="space-y-4">
                 {items.map((q) => (
-                  <div key={q.id} className="rounded-2xl border bg-white p-4">
+                  <div key={q.questionKey} className="rounded-2xl border bg-white p-4">
                     <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                       <div className="flex-1">
                         <div className="mb-2 text-sm font-semibold text-slate-500">
-                          문항 {q.id}
+                          문항 {q.originalId}
+                          {isAllRandomMode && (
+                            <span className="ml-2 font-normal text-slate-400">
+                              [{q.sourceFile}]
+                            </span>
+                          )}
                           {q.type === "multi" && (
                             <span className="ml-2 font-normal text-slate-400">
                               (쉼표로 구분)
@@ -354,8 +463,8 @@ export default function BiologyFillInQuiz() {
                         </div>
                         <div className="text-base leading-7">{q.prompt}</div>
                         <Input
-                          value={userAnswers[q.id] || ""}
-                          onChange={(e) => handleChange(q.id, e.target.value)}
+                          value={userAnswers[q.questionKey] || ""}
+                          onChange={(e) => handleChange(q.questionKey, e.target.value)}
                           onFocus={(e) =>
                             e.target.scrollIntoView({
                               behavior: "smooth",
