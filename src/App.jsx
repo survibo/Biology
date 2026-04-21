@@ -58,6 +58,17 @@ function buildInitialAnswers(questions) {
   return Object.fromEntries((questions || []).map((q) => [q.questionKey, ""]));
 }
 
+function answersToReviewText(answers) {
+  return (answers || []).join("\n");
+}
+
+function parseReviewAnswers(text) {
+  return (text || "")
+    .split(/\r?\n/)
+    .map((answer) => answer.trim())
+    .filter(Boolean);
+}
+
 function shuffleArray(items) {
   const shuffled = [...items];
   for (let i = shuffled.length - 1; i > 0; i -= 1) {
@@ -93,6 +104,9 @@ export default function BiologyFillInQuiz() {
   const [copied, setCopied] = useState(false);
   const [isShuffled, setIsShuffled] = useState(false);
   const [shuffledQuestionIds, setShuffledQuestionIds] = useState([]);
+  const [reviewEdits, setReviewEdits] = useState({});
+  const [manualGrades, setManualGrades] = useState({});
+  const [openReviewIds, setOpenReviewIds] = useState({});
   const isAllRandomMode = selectedFile === ALL_RANDOM_VALUE;
   const requestedRandomCount = useMemo(() => {
     const parsed = Number.parseInt(allRandomCountInput, 10);
@@ -134,6 +148,9 @@ export default function BiologyFillInQuiz() {
         setCopied(false);
         setIsShuffled(false);
         setShuffledQuestionIds([]);
+        setReviewEdits({});
+        setManualGrades({});
+        setOpenReviewIds({});
       } catch (err) {
         console.error("문제 파일 로드 실패:", err);
         setQuestions([]);
@@ -141,6 +158,9 @@ export default function BiologyFillInQuiz() {
         setUserAnswers({});
         setIsShuffled(false);
         setShuffledQuestionIds([]);
+        setReviewEdits({});
+        setManualGrades({});
+        setOpenReviewIds({});
       } finally {
         setLoading(false);
       }
@@ -150,24 +170,48 @@ export default function BiologyFillInQuiz() {
   }, [selectedFile, requestedRandomCount, randomDrawVersion]);
 
   const results = useMemo(() => {
-    return questions.map((q) => ({
-      ...q,
-      userAnswer: userAnswers[q.questionKey] || "",
-      correct: isCorrect(userAnswers[q.questionKey], q.answers, q.type),
-    }));
-  }, [questions, userAnswers]);
+    return questions.map((q) => {
+      const edit = reviewEdits[q.questionKey] || {};
+      const answers =
+        edit.answersText !== undefined
+          ? parseReviewAnswers(edit.answersText)
+          : q.answers;
+      const prompt = edit.prompt ?? q.prompt;
+      const userAnswer = userAnswers[q.questionKey] || "";
+      const autoCorrect = isCorrect(userAnswer, answers, q.type);
+      const manualGrade = manualGrades[q.questionKey];
+      const correct =
+        manualGrade === "correct"
+          ? true
+          : manualGrade === "wrong"
+            ? false
+            : autoCorrect;
+
+      return {
+        ...q,
+        prompt,
+        answers,
+        userAnswer,
+        autoCorrect,
+        correct,
+        manualGrade,
+      };
+    });
+  }, [manualGrades, questions, reviewEdits, userAnswers]);
 
   const score = results.filter((r) => r.correct).length;
   const progress = questions.length
     ? Math.round((score / questions.length) * 100)
     : 0;
+  const autoWrongCount = results.filter((r) => !r.autoCorrect).length;
+  const manualGradeCount = Object.keys(manualGrades).length;
 
   const wrongQuestions = useMemo(() => {
     if (!submitted) return [];
     return results
       .filter((r) => !r.correct)
-      .map(({ originalId, section, prompt, answers, type, sourceFile }) => ({
-        id: originalId,
+      .map(({ section, prompt, answers, type, sourceFile }, index) => ({
+        id: index + 1,
         section,
         prompt,
         answers,
@@ -208,11 +252,45 @@ export default function BiologyFillInQuiz() {
 
   const gradeAll = () => setSubmitted(true);
 
+  const toggleReview = (id) => {
+    setOpenReviewIds((prev) => ({
+      ...prev,
+      [id]: !prev[id],
+    }));
+  };
+
+  const updateReviewEdit = (id, patch) => {
+    setReviewEdits((prev) => ({
+      ...prev,
+      [id]: {
+        ...prev[id],
+        ...patch,
+      },
+    }));
+    setCopied(false);
+  };
+
+  const updateManualGrade = (id, grade) => {
+    setManualGrades((prev) => {
+      const next = { ...prev };
+      if (grade === "auto") {
+        delete next[id];
+      } else {
+        next[id] = grade;
+      }
+      return next;
+    });
+    setCopied(false);
+  };
+
   const resetAll = () => {
     setUserAnswers(buildInitialAnswers(questions));
     setSubmitted(false);
     setShowAnswers(false);
     setCopied(false);
+    setReviewEdits({});
+    setManualGrades({});
+    setOpenReviewIds({});
   };
 
   const fillSample = () => {
@@ -395,7 +473,7 @@ export default function BiologyFillInQuiz() {
               </Card>
               <Card className="rounded-2xl">
                 <CardContent className="p-4">
-                  <div className="text-sm text-slate-500">정답 수</div>
+                  <div className="text-sm text-slate-500">리뷰 기준 정답 수</div>
                   <div className="mt-1 text-2xl font-bold">
                     {submitted ? score : "-"}
                   </div>
@@ -431,7 +509,9 @@ export default function BiologyFillInQuiz() {
             </CardHeader>
             <CardContent>
               <div className="mb-3 text-sm text-slate-600">
-                오답 {wrongQuestions.length}개만 추출했습니다.
+                자동 오답 {autoWrongCount}개에서 수동 판정 {manualGradeCount}개와
+                리뷰 편집 내용을 반영해 오답 {wrongQuestions.length}개만 1번부터 다시 번호를
+                매겨 추출했습니다.
               </div>
               <pre className="max-h-[420px] overflow-auto rounded-2xl bg-slate-900 p-4 text-sm leading-6 text-slate-100">
                 <code>{wrongQuestionsJson}</code>
@@ -488,17 +568,104 @@ export default function BiologyFillInQuiz() {
                             </span>
                           </div>
                         )}
+                        {submitted && openReviewIds[q.questionKey] && (
+                          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                              <div>
+                                <div className="text-sm font-semibold text-slate-800">
+                                  문제 리뷰
+                                </div>
+                                <div className="mt-1 text-xs text-slate-500">
+                                  자동 판정: {q.autoCorrect ? "정답" : "오답"}
+                                </div>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant={!q.manualGrade ? "secondary" : "outline"}
+                                  onClick={() => updateManualGrade(q.questionKey, "auto")}
+                                  className="rounded-xl"
+                                >
+                                  자동
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant={q.manualGrade === "correct" ? "secondary" : "outline"}
+                                  onClick={() => updateManualGrade(q.questionKey, "correct")}
+                                  className="rounded-xl"
+                                >
+                                  정답 고정
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant={q.manualGrade === "wrong" ? "destructive" : "outline"}
+                                  onClick={() => updateManualGrade(q.questionKey, "wrong")}
+                                  className="rounded-xl"
+                                >
+                                  오답 고정
+                                </Button>
+                              </div>
+                            </div>
+
+                            <label className="mt-3 block text-xs font-semibold text-slate-600">
+                              문제 문장
+                            </label>
+                            <textarea
+                              value={reviewEdits[q.questionKey]?.prompt ?? q.prompt}
+                              onChange={(e) =>
+                                updateReviewEdit(q.questionKey, { prompt: e.target.value })
+                              }
+                              className="mt-1 min-h-20 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm leading-6 outline-none focus:border-slate-500"
+                            />
+
+                            <label className="mt-3 block text-xs font-semibold text-slate-600">
+                              답안 목록
+                            </label>
+                            <textarea
+                              value={
+                                reviewEdits[q.questionKey]?.answersText ??
+                                answersToReviewText(q.answers)
+                              }
+                              onChange={(e) =>
+                                updateReviewEdit(q.questionKey, {
+                                  answersText: e.target.value,
+                                })
+                              }
+                              className="mt-1 min-h-20 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm leading-6 outline-none focus:border-slate-500"
+                            />
+                            <div className="mt-1 text-xs text-slate-500">
+                              답안은 한 줄에 하나씩 입력합니다.
+                            </div>
+                          </div>
+                        )}
                       </div>
                       {submitted && (
-                        <div className="md:pl-4">
+                        <div className="flex flex-col items-start gap-2 md:items-end md:pl-4">
                           {q.correct ? (
                             <div className="flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-2 text-emerald-700">
-                              <CheckCircle2 className="h-4 w-4" /> 정답
+                              <CheckCircle2 className="h-4 w-4" />
+                              {q.manualGrade === "correct" ? "정답 고정" : "정답"}
                             </div>
                           ) : (
                             <div className="flex items-center gap-2 rounded-full bg-rose-50 px-3 py-2 text-rose-700">
-                              <XCircle className="h-4 w-4" /> 오답
+                              <XCircle className="h-4 w-4" />
+                              {q.manualGrade === "wrong" ? "오답 고정" : "오답"}
                             </div>
+                          )}
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={openReviewIds[q.questionKey] ? "secondary" : "outline"}
+                            onClick={() => toggleReview(q.questionKey)}
+                            className="rounded-xl"
+                          >
+                            {openReviewIds[q.questionKey] ? "리뷰 닫기" : "문제 리뷰"}
+                          </Button>
+                          {(q.manualGrade || reviewEdits[q.questionKey]) && (
+                            <div className="text-xs text-slate-500">리뷰 반영됨</div>
                           )}
                         </div>
                       )}
