@@ -405,7 +405,7 @@ export default function BiologyFillInQuiz() {
                     onChange={(e) => setSelectedFile(e.target.value)}
                     className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none"
                   >
-                    <option value={ALL_RANDOM_VALUE}>전체 랜덤 (wrong.js 제외)</option>
+                    <option value={ALL_RANDOM_VALUE}>전체 랜덤</option>
                     {fileOptions.map((file) => (
                       <option key={file.value} value={file.value}>
                         {file.label}
