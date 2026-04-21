@@ -12,7 +12,7 @@ import {
   Copy,
 } from "lucide-react";
 
-const questionModules = import.meta.glob(["./json/*.js", "!./json/*.wrong.js"]);
+const questionModules = import.meta.glob("./json/*.js");
 const ALL_RANDOM_VALUE = "__all_random__";
 
 function isWrongQuestionFile(path) {
@@ -81,7 +81,6 @@ function shuffleArray(items) {
 export default function BiologyFillInQuiz() {
   const fileOptions = useMemo(() => {
     return Object.keys(questionModules)
-      .filter((path) => !isWrongQuestionFile(path))
       .sort()
       .map((path) => {
         return {
