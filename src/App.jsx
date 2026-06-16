@@ -11,6 +11,17 @@ import {
   EyeOff,
   Copy,
 } from "lucide-react";
+import {
+  answersToReviewText,
+  getAnswerLabel,
+  getChoiceOptions,
+  getPromptStem,
+  getSampleAnswer,
+  isCorrect,
+  parsePromptEdit,
+  parseReviewAnswers,
+  promptToReviewText,
+} from "@/quizLogic";
 
 const questionModules = import.meta.glob("./json/*.js");
 const ALL_RANDOM_VALUE = "__all_random__";
@@ -37,36 +48,8 @@ function clampQuestionCount(count, total) {
   return Math.min(Math.max(count, 1), total);
 }
 
-function normalize(text) {
-  return (text || "")
-    .toString()
-    .trim()
-    .toLowerCase()
-    .replace(/[\s\-_,.·:;!?()[\]{}'"""'']/g, "");
-}
-
-function isCorrect(input, answers, type) {
-  if (type === "multi") {
-    const userSet = input.split(",").map(normalize).filter(Boolean).sort().join("|");
-    const answerSet = answers.map(normalize).sort().join("|");
-    return userSet === answerSet;
-  }
-  return answers.some((a) => normalize(a) === normalize(input));
-}
-
 function buildInitialAnswers(questions) {
   return Object.fromEntries((questions || []).map((q) => [q.questionKey, ""]));
-}
-
-function answersToReviewText(answers) {
-  return (answers || []).join("\n");
-}
-
-function parseReviewAnswers(text) {
-  return (text || "")
-    .split(/\r?\n/)
-    .map((answer) => answer.trim())
-    .filter(Boolean);
 }
 
 function shuffleArray(items) {
@@ -173,7 +156,7 @@ export default function BiologyFillInQuiz() {
       const edit = reviewEdits[q.questionKey] || {};
       const answers =
         edit.answersText !== undefined
-          ? parseReviewAnswers(edit.answersText)
+          ? parseReviewAnswers(edit.answersText, q.type)
           : q.answers;
       const prompt = edit.prompt ?? q.prompt;
       const userAnswer = userAnswers[q.questionKey] || "";
@@ -295,12 +278,8 @@ export default function BiologyFillInQuiz() {
   const fillSample = () => {
     const seeded = Object.fromEntries(
       questions.map((q, i) => [
-        q.id,
-        i % 7 === 0
-          ? q.type === "multi"
-            ? q.answers.join(", ")
-            : q.answers[0]
-          : "",
+        q.questionKey,
+        i % 7 === 0 ? getSampleAnswer(q) : "",
       ])
     );
     setUserAnswers(seeded);
@@ -343,7 +322,7 @@ export default function BiologyFillInQuiz() {
               <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div>
                   <CardTitle className="text-3xl font-bold tracking-tight">
-                    생명과학 단답·빈칸채우기
+                    생명과학 단답·빈칸·객관식
                   </CardTitle>
                   <p className="mt-2 text-sm text-slate-600">
                     문제 파일 하나를 선택하거나, 전체 JSON에서 랜덤으로 원하는 수만큼 뽑아 풀 수 있습니다.
@@ -539,31 +518,63 @@ export default function BiologyFillInQuiz() {
                               (쉼표로 구분)
                             </span>
                           )}
+                          {q.type === "choice" && (
+                            <span className="ml-2 font-normal text-slate-400">
+                              (객관식)
+                            </span>
+                          )}
                         </div>
-                        <div className="text-base leading-7">{q.prompt}</div>
-                        <Input
-                          value={userAnswers[q.questionKey] || ""}
-                          onChange={(e) => handleChange(q.questionKey, e.target.value)}
-                          onFocus={(e) =>
-                            e.target.scrollIntoView({
-                              behavior: "smooth",
-                              block: "center",
-                            })
-                          }
-                          placeholder={
-                            q.type === "multi"
-                              ? `${q.answers.length}개, 쉼표로 구분`
-                              : "정답 입력"
-                          }
-                          className="mt-3 h-9"
-                        />
+                        <div className="text-base leading-7">{getPromptStem(q.prompt)}</div>
+                        {q.type === "choice" ? (
+                          <div className="mt-3 grid gap-2 md:grid-cols-2">
+                            {getChoiceOptions(q.prompt).map((option, optionIndex) => {
+                              const selected =
+                                userAnswers[q.questionKey] === optionIndex.toString();
+
+                              return (
+                                <button
+                                  key={`${q.questionKey}-${optionIndex}`}
+                                  type="button"
+                                  onClick={() =>
+                                    handleChange(q.questionKey, optionIndex.toString())
+                                  }
+                                  className={`flex min-h-10 items-start gap-2 rounded-xl border px-3 py-2 text-left text-sm leading-6 transition ${
+                                    selected
+                                      ? "border-slate-900 bg-slate-900 text-white"
+                                      : "border-slate-200 bg-white text-slate-800 hover:border-slate-400"
+                                  }`}
+                                >
+                                  <span className="shrink-0 font-semibold">
+                                    {optionIndex + 1}.
+                                  </span>
+                                  <span>{option}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <Input
+                            value={userAnswers[q.questionKey] || ""}
+                            onChange={(e) => handleChange(q.questionKey, e.target.value)}
+                            onFocus={(e) =>
+                              e.target.scrollIntoView({
+                                behavior: "smooth",
+                                block: "center",
+                              })
+                            }
+                            placeholder={
+                              q.type === "multi"
+                                ? `${q.answers.length}개, 쉼표로 구분`
+                                : "정답 입력"
+                            }
+                            className="mt-3 h-9"
+                          />
+                        )}
                         {(showAnswers || (submitted && !q.correct)) && (
                           <div className="mt-2 text-sm text-slate-600">
                             정답:{" "}
                             <span className="font-semibold">
-                              {q.type === "multi"
-                                ? q.answers.join(", ")
-                                : q.answers[0]}
+                              {getAnswerLabel(q)}
                             </span>
                           </div>
                         )}
@@ -610,12 +621,18 @@ export default function BiologyFillInQuiz() {
                             </div>
 
                             <label className="mt-3 block text-xs font-semibold text-slate-600">
-                              문제 문장
+                              {q.type === "choice" ? "문제/선택지 목록" : "문제 문장"}
                             </label>
                             <textarea
-                              value={reviewEdits[q.questionKey]?.prompt ?? q.prompt}
+                              value={
+                                reviewEdits[q.questionKey]?.prompt !== undefined
+                                  ? promptToReviewText(reviewEdits[q.questionKey].prompt)
+                                  : promptToReviewText(q.prompt)
+                              }
                               onChange={(e) =>
-                                updateReviewEdit(q.questionKey, { prompt: e.target.value })
+                                updateReviewEdit(q.questionKey, {
+                                  prompt: parsePromptEdit(e.target.value, q.type),
+                                })
                               }
                               className="mt-1 min-h-20 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm leading-6 outline-none focus:border-slate-500"
                             />
@@ -636,7 +653,9 @@ export default function BiologyFillInQuiz() {
                               className="mt-1 min-h-20 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm leading-6 outline-none focus:border-slate-500"
                             />
                             <div className="mt-1 text-xs text-slate-500">
-                              답안은 한 줄에 하나씩 입력합니다.
+                              {q.type === "choice"
+                                ? "객관식 답안은 정답 선택지의 0부터 시작하는 index를 입력합니다."
+                                : "답안은 한 줄에 하나씩 입력합니다."}
                             </div>
                           </div>
                         )}
@@ -681,6 +700,8 @@ export default function BiologyFillInQuiz() {
             <p className="mt-2">
               띄어쓰기, 하이픈, 일부 문장부호, 영문 대소문자는 무시하고
               채점합니다. 다답 문제는 쉼표로 구분하여 입력하며 순서는 무관합니다.
+              객관식 문제는 선택지 번호로 고르고, 데이터의 answers에는 정답 선택지의
+              0부터 시작하는 index를 둡니다.
             </p>
           </CardContent>
         </Card>
