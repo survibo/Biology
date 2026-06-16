@@ -88,12 +88,3 @@ export function getChoiceAnswerLabel(question) {
 
   return option ? `${answerIndex + 1}. ${option}` : `${answerIndex + 1}번`;
 }
-
-export function getSampleAnswer(question) {
-  if (question.type === "choice") {
-    const index = normalizeChoiceIndex(question.answers?.[0]);
-    return index === null ? "" : index.toString();
-  }
-
-  return question.type === "multi" ? question.answers.join(", ") : question.answers[0];
-}

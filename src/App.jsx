@@ -18,7 +18,6 @@ import {
   getAnswerLabel,
   getChoiceOptions,
   getPromptStem,
-  getSampleAnswer,
   isCorrect,
   parsePromptEdit,
   parseReviewAnswers,
@@ -75,7 +74,9 @@ function saveWrongNoteItems(items) {
 }
 
 function getWrongNoteId(question) {
-  return `${question.sourceFile || "unknown"}::${question.originalId ?? question.id}`;
+  return `${question.sourceFile || "unknown"}::${
+    question.originalId ?? question.id
+  }`;
 }
 
 function toStoredQuestion(question) {
@@ -149,6 +150,8 @@ export default function BiologyFillInQuiz() {
   const [reviewEdits, setReviewEdits] = useState({});
   const [manualGrades, setManualGrades] = useState({});
   const [openReviewIds, setOpenReviewIds] = useState({});
+  const [singleGradedIds, setSingleGradedIds] = useState({});
+  const [openQuestionMenuId, setOpenQuestionMenuId] = useState("");
   const [wrongNoteItems, setWrongNoteItems] = useState(loadWrongNoteItems);
   const [showWrongNoteManager, setShowWrongNoteManager] = useState(false);
   const [wrongNoteFilter, setWrongNoteFilter] = useState("active");
@@ -162,7 +165,8 @@ export default function BiologyFillInQuiz() {
     () => wrongNoteItems.filter((item) => !item.mastered),
     [wrongNoteItems]
   );
-  const masteredWrongNoteCount = wrongNoteItems.length - activeWrongNoteItems.length;
+  const masteredWrongNoteCount =
+    wrongNoteItems.length - activeWrongNoteItems.length;
   const requestedRandomCount = useMemo(() => {
     const parsed = Number.parseInt(allRandomCountInput, 10);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
@@ -177,7 +181,9 @@ export default function BiologyFillInQuiz() {
         let loadedQuestions = [];
 
         if (selectedFile === WRONG_NOTE_VALUE) {
-          const storedActiveItems = loadWrongNoteItems().filter((item) => !item.mastered);
+          const storedActiveItems = loadWrongNoteItems().filter(
+            (item) => !item.mastered
+          );
           const noteQuestions = storedActiveItems.map(toWrongNoteQuestion);
           loadedQuestions = maybeDrawRandomQuestions(
             noteQuestions,
@@ -189,9 +195,14 @@ export default function BiologyFillInQuiz() {
           const validPaths = Object.keys(questionModules)
             .filter((path) => !isWrongQuestionFile(path))
             .sort();
-          const modules = await Promise.all(validPaths.map((path) => questionModules[path]()));
+          const modules = await Promise.all(
+            validPaths.map((path) => questionModules[path]())
+          );
           const mergedQuestions = modules.flatMap((mod, index) =>
-            prepareQuestions(mod.questions || [], getFileLabel(validPaths[index]))
+            prepareQuestions(
+              mod.questions || [],
+              getFileLabel(validPaths[index])
+            )
           );
           loadedQuestions = maybeDrawRandomQuestions(
             mergedQuestions,
@@ -201,7 +212,10 @@ export default function BiologyFillInQuiz() {
           setTotalPoolSize(mergedQuestions.length);
         } else if (questionModules[selectedFile]) {
           const mod = await questionModules[selectedFile]();
-          const fileQuestions = prepareQuestions(mod.questions || [], getFileLabel(selectedFile));
+          const fileQuestions = prepareQuestions(
+            mod.questions || [],
+            getFileLabel(selectedFile)
+          );
           loadedQuestions = maybeDrawRandomQuestions(
             fileQuestions,
             isRandomSubset,
@@ -222,6 +236,8 @@ export default function BiologyFillInQuiz() {
         setReviewEdits({});
         setManualGrades({});
         setOpenReviewIds({});
+        setSingleGradedIds({});
+        setOpenQuestionMenuId("");
         setPendingWrongNoteResults([]);
         setShowWrongNoteSaveModal(false);
       } catch (err) {
@@ -234,6 +250,8 @@ export default function BiologyFillInQuiz() {
         setReviewEdits({});
         setManualGrades({});
         setOpenReviewIds({});
+        setSingleGradedIds({});
+        setOpenQuestionMenuId("");
         setPendingWrongNoteResults([]);
         setShowWrongNoteSaveModal(false);
       } finally {
@@ -259,8 +277,8 @@ export default function BiologyFillInQuiz() {
         manualGrade === "correct"
           ? true
           : manualGrade === "wrong"
-            ? false
-            : autoCorrect;
+          ? false
+          : autoCorrect;
 
       return {
         ...q,
@@ -324,9 +342,13 @@ export default function BiologyFillInQuiz() {
     if (!isShuffled) return results;
 
     const resultMap = new Map(results.map((q) => [q.questionKey, q]));
-    const shuffled = shuffledQuestionIds.map((id) => resultMap.get(id)).filter(Boolean);
+    const shuffled = shuffledQuestionIds
+      .map((id) => resultMap.get(id))
+      .filter(Boolean);
 
-    return shuffled.length === results.length ? shuffled : shuffleArray(results);
+    return shuffled.length === results.length
+      ? shuffled
+      : shuffleArray(results);
   }, [isShuffled, results, shuffledQuestionIds]);
 
   const grouped = useMemo(() => {
@@ -378,7 +400,9 @@ export default function BiologyFillInQuiz() {
       }
 
       return Array.from(map.values()).sort((a, b) =>
-        (b.lastWrongAt || b.updatedAt || "").localeCompare(a.lastWrongAt || a.updatedAt || "")
+        (b.lastWrongAt || b.updatedAt || "").localeCompare(
+          a.lastWrongAt || a.updatedAt || ""
+        )
       );
     });
   };
@@ -413,6 +437,23 @@ export default function BiologyFillInQuiz() {
     }));
   };
 
+  const toggleQuestionMenu = (id) => {
+    setOpenQuestionMenuId((prev) => (prev === id ? "" : id));
+  };
+
+  const gradeSingleQuestion = (id) => {
+    setSingleGradedIds((prev) => ({
+      ...prev,
+      [id]: true,
+    }));
+    setOpenQuestionMenuId("");
+  };
+
+  const addSingleQuestionToWrongNote = (question) => {
+    saveWrongResultsToNote([question]);
+    setOpenQuestionMenuId("");
+  };
+
   const updateReviewEdit = (id, patch) => {
     setReviewEdits((prev) => ({
       ...prev,
@@ -441,7 +482,10 @@ export default function BiologyFillInQuiz() {
     persistWrongNoteItems((prev) =>
       prev.map((item) => {
         if (item.id !== id) return item;
-        const next = typeof updater === "function" ? updater(item) : { ...item, ...updater };
+        const next =
+          typeof updater === "function"
+            ? updater(item)
+            : { ...item, ...updater };
         return {
           ...next,
           updatedAt: nowIso(),
@@ -511,21 +555,10 @@ export default function BiologyFillInQuiz() {
     setReviewEdits({});
     setManualGrades({});
     setOpenReviewIds({});
+    setSingleGradedIds({});
+    setOpenQuestionMenuId("");
     setPendingWrongNoteResults([]);
     setShowWrongNoteSaveModal(false);
-  };
-
-  const fillSample = () => {
-    const seeded = Object.fromEntries(
-      questions.map((q, i) => [
-        q.questionKey,
-        i % 7 === 0 ? getSampleAnswer(q) : "",
-      ])
-    );
-    setUserAnswers(seeded);
-    setSubmitted(false);
-    setShowAnswers(false);
-    setCopied(false);
   };
 
   const toggleShuffle = () => {
@@ -565,7 +598,8 @@ export default function BiologyFillInQuiz() {
                     생명과학 단답·빈칸·객관식
                   </CardTitle>
                   <p className="mt-2 text-sm text-slate-600">
-                    문제 파일 하나를 선택하거나, 전체 JSON에서 랜덤으로 원하는 수만큼 뽑아 풀 수 있습니다.
+                    문제 파일 하나를 선택하거나, 전체 JSON에서 랜덤으로 원하는
+                    수만큼 뽑아 풀 수 있습니다.
                   </p>
                   <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-600">
                     <span className="rounded-full bg-white px-3 py-1 ring-1 ring-slate-200">
@@ -578,7 +612,11 @@ export default function BiologyFillInQuiz() {
                 </div>
 
                 <div className="flex flex-wrap gap-2">
-                  <Button onClick={gradeAll} className="rounded-xl" disabled={loading || !questions.length}>
+                  <Button
+                    onClick={gradeAll}
+                    className="rounded-xl"
+                    disabled={loading || !questions.length}
+                  >
                     전체 채점
                   </Button>
                   <Button
@@ -601,14 +639,6 @@ export default function BiologyFillInQuiz() {
                     disabled={loading || !questions.length}
                   >
                     <RotateCcw className="mr-2 h-4 w-4" /> 초기화
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={fillSample}
-                    className="rounded-xl"
-                    disabled={loading || !questions.length}
-                  >
-                    예시 입력
                   </Button>
                   <Button
                     variant="outline"
@@ -666,8 +696,8 @@ export default function BiologyFillInQuiz() {
                     {isAllRandomMode
                       ? "항상 랜덤"
                       : isRandomSubset
-                        ? "랜덤 켜짐"
-                        : "전체 출제"}
+                      ? "랜덤 켜짐"
+                      : "전체 출제"}
                   </button>
                 </div>
 
@@ -681,7 +711,9 @@ export default function BiologyFillInQuiz() {
                       min="1"
                       value={allRandomCountInput}
                       onChange={(e) =>
-                        setAllRandomCountInput(e.target.value.replace(/[^\d]/g, ""))
+                        setAllRandomCountInput(
+                          e.target.value.replace(/[^\d]/g, "")
+                        )
                       }
                       disabled={!isRandomDrawEnabled}
                       className="h-10"
@@ -701,7 +733,8 @@ export default function BiologyFillInQuiz() {
 
               {isAllRandomMode && (
                 <div className="text-sm text-slate-600">
-                  전체 {totalPoolSize}문제 중 {questions.length}문항을 랜덤으로 출제합니다.
+                  전체 {totalPoolSize}문제 중 {questions.length}문항을 랜덤으로
+                  출제합니다.
                 </div>
               )}
               {isWrongNoteMode && (
@@ -713,7 +746,8 @@ export default function BiologyFillInQuiz() {
               )}
               {!isAllRandomMode && !isWrongNoteMode && isRandomSubset && (
                 <div className="text-sm text-slate-600">
-                  선택한 파일의 {totalPoolSize}문제 중 {questions.length}문항을 랜덤으로 출제합니다.
+                  선택한 파일의 {totalPoolSize}문제 중 {questions.length}문항을
+                  랜덤으로 출제합니다.
                 </div>
               )}
 
@@ -723,14 +757,19 @@ export default function BiologyFillInQuiz() {
                 </label>
                 <div className="flex h-10 items-center rounded-xl border border-slate-300 bg-slate-50 px-3 text-sm text-slate-700">
                   {isAllRandomMode
-                    ? `전체 랜덤 ${clampQuestionCount(requestedRandomCount, totalPoolSize || requestedRandomCount)}문항`
+                    ? `전체 랜덤 ${clampQuestionCount(
+                        requestedRandomCount,
+                        totalPoolSize || requestedRandomCount
+                      )}문항`
                     : isWrongNoteMode
-                      ? isRandomSubset
-                        ? `오답노트 랜덤 ${questions.length}/${totalPoolSize}문항`
-                        : `오답노트 ${totalPoolSize}문항`
+                    ? isRandomSubset
+                      ? `오답노트 랜덤 ${questions.length}/${totalPoolSize}문항`
+                      : `오답노트 ${totalPoolSize}문항`
                     : isRandomSubset
-                      ? `${getFileLabel(selectedFile)} 랜덤 ${questions.length}/${totalPoolSize}문항`
-                      : getFileLabel(selectedFile)}
+                    ? `${getFileLabel(selectedFile)} 랜덤 ${
+                        questions.length
+                      }/${totalPoolSize}문항`
+                    : getFileLabel(selectedFile)}
                 </div>
               </div>
             </div>
@@ -748,7 +787,9 @@ export default function BiologyFillInQuiz() {
               </Card>
               <Card className="rounded-2xl">
                 <CardContent className="p-4">
-                  <div className="text-sm text-slate-500">리뷰 기준 정답 수</div>
+                  <div className="text-sm text-slate-500">
+                    리뷰 기준 정답 수
+                  </div>
                   <div className="mt-1 text-2xl font-bold">
                     {submitted ? score : "-"}
                   </div>
@@ -784,9 +825,9 @@ export default function BiologyFillInQuiz() {
             </CardHeader>
             <CardContent>
               <div className="mb-3 text-sm text-slate-600">
-                자동 오답 {autoWrongCount}개에서 수동 판정 {manualGradeCount}개와
-                리뷰 편집 내용을 반영해 오답 {wrongQuestions.length}개만 1번부터 다시 번호를
-                매겨 추출했습니다.
+                자동 오답 {autoWrongCount}개에서 수동 판정 {manualGradeCount}
+                개와 리뷰 편집 내용을 반영해 오답 {wrongQuestions.length}개만
+                1번부터 다시 번호를 매겨 추출했습니다.
               </div>
               <div className="mb-4 flex flex-wrap gap-2">
                 <Button
@@ -835,8 +876,9 @@ export default function BiologyFillInQuiz() {
                     오답노트에 등록할까요?
                   </div>
                   <p className="mt-2 text-sm leading-6 text-slate-600">
-                    이번 채점에서 틀린 문제 {pendingWrongNoteResults.length}개를 저장합니다.
-                    이미 저장된 문제는 중복 추가하지 않고 틀린 횟수와 마지막 답변만 갱신됩니다.
+                    이번 채점에서 틀린 문제 {pendingWrongNoteResults.length}개를
+                    저장합니다. 이미 저장된 문제는 중복 추가하지 않고 틀린
+                    횟수와 마지막 답변만 갱신됩니다.
                   </p>
                 </div>
               </div>
@@ -892,7 +934,8 @@ export default function BiologyFillInQuiz() {
                 <div>
                   <CardTitle className="text-xl">오답노트 관리</CardTitle>
                   <p className="mt-1 text-sm text-slate-600">
-                    저장된 오답을 앱 안에서 직접 수정하고, 다시 풀 문제와 정복한 문제를 나눠 관리합니다.
+                    저장된 오답을 앱 안에서 직접 수정하고, 다시 풀 문제와 정복한
+                    문제를 나눠 관리합니다.
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -938,7 +981,8 @@ export default function BiologyFillInQuiz() {
 
               {!wrongNoteItems.length && (
                 <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-600">
-                  아직 저장된 오답이 없습니다. 문제를 채점하면 틀린 문제가 자동으로 저장됩니다.
+                  아직 저장된 오답이 없습니다. 문제를 채점하면 틀린 문제가
+                  자동으로 저장됩니다.
                 </div>
               )}
 
@@ -1011,7 +1055,9 @@ export default function BiologyFillInQuiz() {
                         <Input
                           value={question.section || ""}
                           onChange={(e) =>
-                            updateWrongNoteQuestion(item.id, { section: e.target.value })
+                            updateWrongNoteQuestion(item.id, {
+                              section: e.target.value,
+                            })
                           }
                           className="h-9"
                         />
@@ -1023,7 +1069,9 @@ export default function BiologyFillInQuiz() {
                         <Input
                           value={item.note || ""}
                           onChange={(e) =>
-                            updateWrongNoteItem(item.id, { note: e.target.value })
+                            updateWrongNoteItem(item.id, {
+                              note: e.target.value,
+                            })
                           }
                           placeholder="헷갈린 이유, 다시 볼 포인트"
                           className="h-9"
@@ -1055,7 +1103,10 @@ export default function BiologyFillInQuiz() {
                                 <input
                                   type="radio"
                                   name={`wrong-note-answer-${item.id}`}
-                                  checked={Number(question.answers?.[0]) === optionIndex}
+                                  checked={
+                                    Number(question.answers?.[0]) ===
+                                    optionIndex
+                                  }
                                   onChange={() =>
                                     updateWrongNoteQuestion(item.id, {
                                       answers: [optionIndex],
@@ -1089,7 +1140,10 @@ export default function BiologyFillInQuiz() {
                             value={promptToReviewText(question.prompt)}
                             onChange={(e) =>
                               updateWrongNoteQuestion(item.id, {
-                                prompt: parsePromptEdit(e.target.value, question.type),
+                                prompt: parsePromptEdit(
+                                  e.target.value,
+                                  question.type
+                                ),
                               })
                             }
                             className="min-h-24 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm leading-6 outline-none focus:border-slate-500"
@@ -1103,7 +1157,10 @@ export default function BiologyFillInQuiz() {
                             value={answersToReviewText(question.answers)}
                             onChange={(e) =>
                               updateWrongNoteQuestion(item.id, {
-                                answers: parseReviewAnswers(e.target.value, question.type),
+                                answers: parseReviewAnswers(
+                                  e.target.value,
+                                  question.type
+                                ),
                               })
                             }
                             className="min-h-24 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm leading-6 outline-none focus:border-slate-500"
@@ -1122,194 +1179,283 @@ export default function BiologyFillInQuiz() {
           grouped.map(([section, items]) => (
             <Card key={section} className="rounded-2xl shadow-sm">
               <CardContent className="space-y-4">
-                {items.map((q) => (
-                  <div key={q.questionKey} className="rounded-2xl border bg-white p-4">
-                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                      <div className="flex-1">
-                        <div className="mb-2 text-sm font-semibold text-slate-500">
-                          문항 {q.originalId}
-                          {(isAllRandomMode || isWrongNoteMode) && (
-                            <span className="ml-2 font-normal text-slate-400">
-                              [{q.sourceFile}]
-                            </span>
+                {items.map((q) => {
+                  const questionGraded =
+                    submitted || Boolean(singleGradedIds[q.questionKey]);
+
+                  return (
+                    <div
+                      key={q.questionKey}
+                      className="relative rounded-2xl border bg-white p-4"
+                    >
+                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <div className="min-w-0 flex-1">
+                          <div className="mb-2 flex items-start justify-between gap-3">
+                            <div className="min-w-0 text-sm font-semibold text-slate-500">
+                              문항 {q.originalId}
+                              {(isAllRandomMode || isWrongNoteMode) && (
+                                <span className="ml-2 font-normal text-slate-400">
+                                  [{q.sourceFile}]
+                                </span>
+                              )}
+                              {q.type === "multi" && (
+                                <span className="ml-2 font-normal text-slate-400">
+                                  (쉼표로 구분)
+                                </span>
+                              )}
+                              {q.type === "choice" && (
+                                <span className="ml-2 font-normal text-slate-400">
+                                  (객관식)
+                                </span>
+                              )}
+                            </div>
+                            <div className="relative shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => toggleQuestionMenu(q.questionKey)}
+                                className="flex h-9 min-w-9 items-center justify-center rounded-full border border-slate-300 bg-slate-100 px-2 text-lg font-bold leading-none text-slate-900 shadow-sm transition hover:border-slate-500 hover:bg-slate-200"
+                                aria-label="문제 메뉴"
+                              >
+                                ...
+                              </button>
+                              {openQuestionMenuId === q.questionKey && (
+                                <div className="absolute right-0 top-full z-30 mt-2 w-40 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 text-sm shadow-lg">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      gradeSingleQuestion(q.questionKey)
+                                    }
+                                    className="block w-full px-3 py-2 text-left text-slate-700 hover:bg-slate-50"
+                                  >
+                                    단일 채점
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => addSingleQuestionToWrongNote(q)}
+                                    className="block w-full px-3 py-2 text-left text-slate-700 hover:bg-slate-50"
+                                  >
+                                    오답노트에 추가
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <div className="text-base leading-7">
+                            {getPromptStem(q.prompt)}
+                          </div>
+                          {q.type === "choice" ? (
+                            <div className="mt-3 grid gap-2 md:grid-cols-2">
+                              {getChoiceOptions(q.prompt).map(
+                                (option, optionIndex) => {
+                                  const selected =
+                                    userAnswers[q.questionKey] ===
+                                    optionIndex.toString();
+
+                                  return (
+                                    <button
+                                      key={`${q.questionKey}-${optionIndex}`}
+                                      type="button"
+                                      onClick={() =>
+                                        handleChange(
+                                          q.questionKey,
+                                          optionIndex.toString()
+                                        )
+                                      }
+                                      className={`flex min-h-10 items-start gap-2 rounded-xl border px-3 py-2 text-left text-sm leading-6 transition ${
+                                        selected
+                                          ? "border-slate-900 bg-slate-900 text-white"
+                                          : "border-slate-200 bg-white text-slate-800 hover:border-slate-400"
+                                      }`}
+                                    >
+                                      <span className="shrink-0 font-semibold">
+                                        {optionIndex + 1}.
+                                      </span>
+                                      <span>{option}</span>
+                                    </button>
+                                  );
+                                }
+                              )}
+                            </div>
+                          ) : (
+                            <Input
+                              value={userAnswers[q.questionKey] || ""}
+                              onChange={(e) =>
+                                handleChange(q.questionKey, e.target.value)
+                              }
+                              onFocus={(e) =>
+                                e.target.scrollIntoView({
+                                  behavior: "smooth",
+                                  block: "center",
+                                })
+                              }
+                              placeholder={
+                                q.type === "multi"
+                                  ? `${q.answers.length}개, 쉼표로 구분`
+                                  : "정답 입력"
+                              }
+                              className="mt-3 h-9"
+                            />
                           )}
-                          {q.type === "multi" && (
-                            <span className="ml-2 font-normal text-slate-400">
-                              (쉼표로 구분)
-                            </span>
+                          {(showAnswers || (questionGraded && !q.correct)) && (
+                            <div className="mt-2 text-sm text-slate-600">
+                              정답:{" "}
+                              <span className="font-semibold">
+                                {getAnswerLabel(q)}
+                              </span>
+                            </div>
                           )}
-                          {q.type === "choice" && (
-                            <span className="ml-2 font-normal text-slate-400">
-                              (객관식)
-                            </span>
+                          {questionGraded && openReviewIds[q.questionKey] && (
+                            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                              <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                                <div>
+                                  <div className="text-sm font-semibold text-slate-800">
+                                    문제 리뷰
+                                  </div>
+                                  <div className="mt-1 text-xs text-slate-500">
+                                    자동 판정: {q.autoCorrect ? "정답" : "오답"}
+                                  </div>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant={
+                                      !q.manualGrade ? "secondary" : "outline"
+                                    }
+                                    onClick={() =>
+                                      updateManualGrade(q.questionKey, "auto")
+                                    }
+                                    className="rounded-xl"
+                                  >
+                                    자동
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant={
+                                      q.manualGrade === "correct"
+                                        ? "secondary"
+                                        : "outline"
+                                    }
+                                    onClick={() =>
+                                      updateManualGrade(
+                                        q.questionKey,
+                                        "correct"
+                                      )
+                                    }
+                                    className="rounded-xl"
+                                  >
+                                    정답 고정
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant={
+                                      q.manualGrade === "wrong"
+                                        ? "destructive"
+                                        : "outline"
+                                    }
+                                    onClick={() =>
+                                      updateManualGrade(q.questionKey, "wrong")
+                                    }
+                                    className="rounded-xl"
+                                  >
+                                    오답 고정
+                                  </Button>
+                                </div>
+                              </div>
+
+                              <label className="mt-3 block text-xs font-semibold text-slate-600">
+                                {q.type === "choice"
+                                  ? "문제/선택지 목록"
+                                  : "문제 문장"}
+                              </label>
+                              <textarea
+                                value={
+                                  reviewEdits[q.questionKey]?.prompt !==
+                                  undefined
+                                    ? promptToReviewText(
+                                        reviewEdits[q.questionKey].prompt
+                                      )
+                                    : promptToReviewText(q.prompt)
+                                }
+                                onChange={(e) =>
+                                  updateReviewEdit(q.questionKey, {
+                                    prompt: parsePromptEdit(
+                                      e.target.value,
+                                      q.type
+                                    ),
+                                  })
+                                }
+                                className="mt-1 min-h-20 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm leading-6 outline-none focus:border-slate-500"
+                              />
+
+                              <label className="mt-3 block text-xs font-semibold text-slate-600">
+                                답안 목록
+                              </label>
+                              <textarea
+                                value={
+                                  reviewEdits[q.questionKey]?.answersText ??
+                                  answersToReviewText(q.answers)
+                                }
+                                onChange={(e) =>
+                                  updateReviewEdit(q.questionKey, {
+                                    answersText: e.target.value,
+                                  })
+                                }
+                                className="mt-1 min-h-20 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm leading-6 outline-none focus:border-slate-500"
+                              />
+                              <div className="mt-1 text-xs text-slate-500">
+                                {q.type === "choice"
+                                  ? "객관식 답안은 정답 선택지의 0부터 시작하는 index를 입력합니다."
+                                  : "답안은 한 줄에 하나씩 입력합니다."}
+                              </div>
+                            </div>
                           )}
                         </div>
-                        <div className="text-base leading-7">{getPromptStem(q.prompt)}</div>
-                        {q.type === "choice" ? (
-                          <div className="mt-3 grid gap-2 md:grid-cols-2">
-                            {getChoiceOptions(q.prompt).map((option, optionIndex) => {
-                              const selected =
-                                userAnswers[q.questionKey] === optionIndex.toString();
-
-                              return (
-                                <button
-                                  key={`${q.questionKey}-${optionIndex}`}
-                                  type="button"
-                                  onClick={() =>
-                                    handleChange(q.questionKey, optionIndex.toString())
-                                  }
-                                  className={`flex min-h-10 items-start gap-2 rounded-xl border px-3 py-2 text-left text-sm leading-6 transition ${
-                                    selected
-                                      ? "border-slate-900 bg-slate-900 text-white"
-                                      : "border-slate-200 bg-white text-slate-800 hover:border-slate-400"
-                                  }`}
-                                >
-                                  <span className="shrink-0 font-semibold">
-                                    {optionIndex + 1}.
-                                  </span>
-                                  <span>{option}</span>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          <Input
-                            value={userAnswers[q.questionKey] || ""}
-                            onChange={(e) => handleChange(q.questionKey, e.target.value)}
-                            onFocus={(e) =>
-                              e.target.scrollIntoView({
-                                behavior: "smooth",
-                                block: "center",
-                              })
-                            }
-                            placeholder={
-                              q.type === "multi"
-                                ? `${q.answers.length}개, 쉼표로 구분`
-                                : "정답 입력"
-                            }
-                            className="mt-3 h-9"
-                          />
-                        )}
-                        {(showAnswers || (submitted && !q.correct)) && (
-                          <div className="mt-2 text-sm text-slate-600">
-                            정답:{" "}
-                            <span className="font-semibold">
-                              {getAnswerLabel(q)}
-                            </span>
-                          </div>
-                        )}
-                        {submitted && openReviewIds[q.questionKey] && (
-                          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
-                            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                              <div>
-                                <div className="text-sm font-semibold text-slate-800">
-                                  문제 리뷰
-                                </div>
-                                <div className="mt-1 text-xs text-slate-500">
-                                  자동 판정: {q.autoCorrect ? "정답" : "오답"}
-                                </div>
+                        {questionGraded && (
+                          <div className="flex flex-col items-start gap-2 md:items-end md:pl-4">
+                            {q.correct ? (
+                              <div className="flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-2 text-emerald-700">
+                                <CheckCircle2 className="h-4 w-4" />
+                                {q.manualGrade === "correct"
+                                  ? "정답 고정"
+                                  : "정답"}
                               </div>
-                              <div className="flex flex-wrap gap-2">
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant={!q.manualGrade ? "secondary" : "outline"}
-                                  onClick={() => updateManualGrade(q.questionKey, "auto")}
-                                  className="rounded-xl"
-                                >
-                                  자동
-                                </Button>
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant={q.manualGrade === "correct" ? "secondary" : "outline"}
-                                  onClick={() => updateManualGrade(q.questionKey, "correct")}
-                                  className="rounded-xl"
-                                >
-                                  정답 고정
-                                </Button>
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant={q.manualGrade === "wrong" ? "destructive" : "outline"}
-                                  onClick={() => updateManualGrade(q.questionKey, "wrong")}
-                                  className="rounded-xl"
-                                >
-                                  오답 고정
-                                </Button>
+                            ) : (
+                              <div className="flex items-center gap-2 rounded-full bg-rose-50 px-3 py-2 text-rose-700">
+                                <XCircle className="h-4 w-4" />
+                                {q.manualGrade === "wrong"
+                                  ? "오답 고정"
+                                  : "오답"}
                               </div>
-                            </div>
-
-                            <label className="mt-3 block text-xs font-semibold text-slate-600">
-                              {q.type === "choice" ? "문제/선택지 목록" : "문제 문장"}
-                            </label>
-                            <textarea
-                              value={
-                                reviewEdits[q.questionKey]?.prompt !== undefined
-                                  ? promptToReviewText(reviewEdits[q.questionKey].prompt)
-                                  : promptToReviewText(q.prompt)
+                            )}
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant={
+                                openReviewIds[q.questionKey]
+                                  ? "secondary"
+                                  : "outline"
                               }
-                              onChange={(e) =>
-                                updateReviewEdit(q.questionKey, {
-                                  prompt: parsePromptEdit(e.target.value, q.type),
-                                })
-                              }
-                              className="mt-1 min-h-20 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm leading-6 outline-none focus:border-slate-500"
-                            />
-
-                            <label className="mt-3 block text-xs font-semibold text-slate-600">
-                              답안 목록
-                            </label>
-                            <textarea
-                              value={
-                                reviewEdits[q.questionKey]?.answersText ??
-                                answersToReviewText(q.answers)
-                              }
-                              onChange={(e) =>
-                                updateReviewEdit(q.questionKey, {
-                                  answersText: e.target.value,
-                                })
-                              }
-                              className="mt-1 min-h-20 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm leading-6 outline-none focus:border-slate-500"
-                            />
-                            <div className="mt-1 text-xs text-slate-500">
-                              {q.type === "choice"
-                                ? "객관식 답안은 정답 선택지의 0부터 시작하는 index를 입력합니다."
-                                : "답안은 한 줄에 하나씩 입력합니다."}
-                            </div>
+                              onClick={() => toggleReview(q.questionKey)}
+                              className="rounded-xl"
+                            >
+                              {openReviewIds[q.questionKey]
+                                ? "리뷰 닫기"
+                                : "문제 리뷰"}
+                            </Button>
+                            {(q.manualGrade || reviewEdits[q.questionKey]) && (
+                              <div className="text-xs text-slate-500">
+                                리뷰 반영됨
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
-                      {submitted && (
-                        <div className="flex flex-col items-start gap-2 md:items-end md:pl-4">
-                          {q.correct ? (
-                            <div className="flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-2 text-emerald-700">
-                              <CheckCircle2 className="h-4 w-4" />
-                              {q.manualGrade === "correct" ? "정답 고정" : "정답"}
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-2 rounded-full bg-rose-50 px-3 py-2 text-rose-700">
-                              <XCircle className="h-4 w-4" />
-                              {q.manualGrade === "wrong" ? "오답 고정" : "오답"}
-                            </div>
-                          )}
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant={openReviewIds[q.questionKey] ? "secondary" : "outline"}
-                            onClick={() => toggleReview(q.questionKey)}
-                            className="rounded-xl"
-                          >
-                            {openReviewIds[q.questionKey] ? "리뷰 닫기" : "문제 리뷰"}
-                          </Button>
-                          {(q.manualGrade || reviewEdits[q.questionKey]) && (
-                            <div className="text-xs text-slate-500">리뷰 반영됨</div>
-                          )}
-                        </div>
-                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </CardContent>
             </Card>
           ))}
@@ -1319,9 +1465,9 @@ export default function BiologyFillInQuiz() {
             <div className="font-semibold text-slate-800">채점 기준</div>
             <p className="mt-2">
               띄어쓰기, 하이픈, 일부 문장부호, 영문 대소문자는 무시하고
-              채점합니다. 다답 문제는 쉼표로 구분하여 입력하며 순서는 무관합니다.
-              객관식 문제는 선택지 번호로 고르고, 데이터의 answers에는 정답 선택지의
-              0부터 시작하는 index를 둡니다.
+              채점합니다. 다답 문제는 쉼표로 구분하여 입력하며 순서는
+              무관합니다. 객관식 문제는 선택지 번호로 고르고, 데이터의
+              answers에는 정답 선택지의 0부터 시작하는 index를 둡니다.
             </p>
           </CardContent>
         </Card>
