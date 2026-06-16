@@ -24,3 +24,5 @@ dist-ssr
 *.sw?
 *.wrong.js
 prompt.md
+Close Dev Ports.cmd
+scripts/
