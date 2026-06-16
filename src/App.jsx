@@ -10,6 +10,8 @@ import {
   Eye,
   EyeOff,
   Copy,
+  BookOpen,
+  Trash2,
 } from "lucide-react";
 import {
   answersToReviewText,
@@ -25,6 +27,8 @@ import {
 
 const questionModules = import.meta.glob("./json/*.js");
 const ALL_RANDOM_VALUE = "__all_random__";
+const WRONG_NOTE_VALUE = "__wrong_note__";
+const WRONG_NOTE_STORAGE_KEY = "biology_wrong_note_v1";
 
 function isWrongQuestionFile(path) {
   return path.endsWith(".wrong.js");
@@ -48,6 +52,56 @@ function clampQuestionCount(count, total) {
   return Math.min(Math.max(count, 1), total);
 }
 
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function loadWrongNoteItems() {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const raw = window.localStorage.getItem(WRONG_NOTE_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    console.error("오답노트 로드 실패:", err);
+    return [];
+  }
+}
+
+function saveWrongNoteItems(items) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(WRONG_NOTE_STORAGE_KEY, JSON.stringify(items));
+}
+
+function getWrongNoteId(question) {
+  return `${question.sourceFile || "unknown"}::${question.originalId ?? question.id}`;
+}
+
+function toStoredQuestion(question) {
+  return {
+    id: question.originalId ?? question.id,
+    originalId: question.originalId ?? question.id,
+    section: question.section,
+    prompt: question.prompt,
+    answers: question.answers,
+    type: question.type,
+    sourceFile: question.sourceFile,
+  };
+}
+
+function toWrongNoteQuestion(item, index) {
+  return {
+    ...item.question,
+    originalId: item.question.originalId ?? item.question.id,
+    questionKey: `wrong-note::${item.id}::${index}`,
+    wrongNoteId: item.id,
+    wrongCount: item.wrongCount || 1,
+    lastUserAnswer: item.lastUserAnswer || "",
+    note: item.note || "",
+  };
+}
+
 function buildInitialAnswers(questions) {
   return Object.fromEntries((questions || []).map((q) => [q.questionKey, ""]));
 }
@@ -59,6 +113,11 @@ function shuffleArray(items) {
     [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
   }
   return shuffled;
+}
+
+function maybeDrawRandomQuestions(items, enabled, count) {
+  if (!enabled) return items;
+  return shuffleArray(items).slice(0, clampQuestionCount(count, items.length));
 }
 
 export default function BiologyFillInQuiz() {
@@ -79,6 +138,7 @@ export default function BiologyFillInQuiz() {
   const [totalPoolSize, setTotalPoolSize] = useState(0);
   const [allRandomCountInput, setAllRandomCountInput] = useState("20");
   const [randomDrawVersion, setRandomDrawVersion] = useState(0);
+  const [isRandomSubset, setIsRandomSubset] = useState(false);
 
   const [userAnswers, setUserAnswers] = useState({});
   const [submitted, setSubmitted] = useState(false);
@@ -89,7 +149,20 @@ export default function BiologyFillInQuiz() {
   const [reviewEdits, setReviewEdits] = useState({});
   const [manualGrades, setManualGrades] = useState({});
   const [openReviewIds, setOpenReviewIds] = useState({});
+  const [wrongNoteItems, setWrongNoteItems] = useState(loadWrongNoteItems);
+  const [showWrongNoteManager, setShowWrongNoteManager] = useState(false);
+  const [wrongNoteFilter, setWrongNoteFilter] = useState("active");
+  const [wrongNoteSearch, setWrongNoteSearch] = useState("");
+  const [pendingWrongNoteResults, setPendingWrongNoteResults] = useState([]);
+  const [showWrongNoteSaveModal, setShowWrongNoteSaveModal] = useState(false);
   const isAllRandomMode = selectedFile === ALL_RANDOM_VALUE;
+  const isWrongNoteMode = selectedFile === WRONG_NOTE_VALUE;
+  const isRandomDrawEnabled = isAllRandomMode || isRandomSubset;
+  const activeWrongNoteItems = useMemo(
+    () => wrongNoteItems.filter((item) => !item.mastered),
+    [wrongNoteItems]
+  );
+  const masteredWrongNoteCount = wrongNoteItems.length - activeWrongNoteItems.length;
   const requestedRandomCount = useMemo(() => {
     const parsed = Number.parseInt(allRandomCountInput, 10);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
@@ -103,7 +176,16 @@ export default function BiologyFillInQuiz() {
       try {
         let loadedQuestions = [];
 
-        if (selectedFile === ALL_RANDOM_VALUE) {
+        if (selectedFile === WRONG_NOTE_VALUE) {
+          const storedActiveItems = loadWrongNoteItems().filter((item) => !item.mastered);
+          const noteQuestions = storedActiveItems.map(toWrongNoteQuestion);
+          loadedQuestions = maybeDrawRandomQuestions(
+            noteQuestions,
+            isRandomSubset,
+            requestedRandomCount
+          );
+          setTotalPoolSize(storedActiveItems.length);
+        } else if (selectedFile === ALL_RANDOM_VALUE) {
           const validPaths = Object.keys(questionModules)
             .filter((path) => !isWrongQuestionFile(path))
             .sort();
@@ -111,14 +193,21 @@ export default function BiologyFillInQuiz() {
           const mergedQuestions = modules.flatMap((mod, index) =>
             prepareQuestions(mod.questions || [], getFileLabel(validPaths[index]))
           );
-          const sampleCount = clampQuestionCount(requestedRandomCount, mergedQuestions.length);
-
-          loadedQuestions = shuffleArray(mergedQuestions).slice(0, sampleCount);
+          loadedQuestions = maybeDrawRandomQuestions(
+            mergedQuestions,
+            true,
+            requestedRandomCount
+          );
           setTotalPoolSize(mergedQuestions.length);
         } else if (questionModules[selectedFile]) {
           const mod = await questionModules[selectedFile]();
-          loadedQuestions = prepareQuestions(mod.questions || [], getFileLabel(selectedFile));
-          setTotalPoolSize(loadedQuestions.length);
+          const fileQuestions = prepareQuestions(mod.questions || [], getFileLabel(selectedFile));
+          loadedQuestions = maybeDrawRandomQuestions(
+            fileQuestions,
+            isRandomSubset,
+            requestedRandomCount
+          );
+          setTotalPoolSize(fileQuestions.length);
         } else {
           setTotalPoolSize(0);
         }
@@ -133,6 +222,8 @@ export default function BiologyFillInQuiz() {
         setReviewEdits({});
         setManualGrades({});
         setOpenReviewIds({});
+        setPendingWrongNoteResults([]);
+        setShowWrongNoteSaveModal(false);
       } catch (err) {
         console.error("문제 파일 로드 실패:", err);
         setQuestions([]);
@@ -143,13 +234,15 @@ export default function BiologyFillInQuiz() {
         setReviewEdits({});
         setManualGrades({});
         setOpenReviewIds({});
+        setPendingWrongNoteResults([]);
+        setShowWrongNoteSaveModal(false);
       } finally {
         setLoading(false);
       }
     }
 
     loadQuestions();
-  }, [selectedFile, requestedRandomCount, randomDrawVersion]);
+  }, [isRandomSubset, selectedFile, requestedRandomCount, randomDrawVersion]);
 
   const results = useMemo(() => {
     return questions.map((q) => {
@@ -206,6 +299,27 @@ export default function BiologyFillInQuiz() {
     return `${JSON.stringify(wrongQuestions, null, 2)};`;
   }, [wrongQuestions]);
 
+  const filteredWrongNoteItems = useMemo(() => {
+    const keyword = wrongNoteSearch.trim().toLowerCase();
+    return wrongNoteItems.filter((item) => {
+      if (wrongNoteFilter === "active" && item.mastered) return false;
+      if (wrongNoteFilter === "mastered" && !item.mastered) return false;
+      if (!keyword) return true;
+
+      const haystack = [
+        item.question?.section,
+        getPromptStem(item.question?.prompt),
+        item.note,
+        item.question?.sourceFile,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return haystack.includes(keyword);
+    });
+  }, [wrongNoteFilter, wrongNoteItems, wrongNoteSearch]);
+
   const orderedResults = useMemo(() => {
     if (!isShuffled) return results;
 
@@ -216,7 +330,7 @@ export default function BiologyFillInQuiz() {
   }, [isShuffled, results, shuffledQuestionIds]);
 
   const grouped = useMemo(() => {
-    if (isShuffled || isAllRandomMode) {
+    if (isShuffled || isAllRandomMode || isWrongNoteMode) {
       return [["__shuffled__", orderedResults]];
     }
 
@@ -226,13 +340,71 @@ export default function BiologyFillInQuiz() {
       map.get(q.section).push(q);
     }
     return Array.from(map.entries());
-  }, [isAllRandomMode, isShuffled, orderedResults, results]);
+  }, [isAllRandomMode, isShuffled, isWrongNoteMode, orderedResults, results]);
 
   const handleChange = (id, value) => {
     setUserAnswers((prev) => ({ ...prev, [id]: value }));
   };
 
-  const gradeAll = () => setSubmitted(true);
+  const persistWrongNoteItems = (updater) => {
+    setWrongNoteItems((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      saveWrongNoteItems(next);
+      return next;
+    });
+  };
+
+  const saveWrongResultsToNote = (wrongResults) => {
+    if (!wrongResults.length) return;
+
+    const savedAt = nowIso();
+    persistWrongNoteItems((prev) => {
+      const map = new Map(prev.map((item) => [item.id, item]));
+
+      for (const question of wrongResults) {
+        const id = question.wrongNoteId || getWrongNoteId(question);
+        const previous = map.get(id);
+        map.set(id, {
+          id,
+          question: toStoredQuestion(question),
+          note: previous?.note || "",
+          mastered: false,
+          wrongCount: (previous?.wrongCount || 0) + 1,
+          lastUserAnswer: question.userAnswer || "",
+          createdAt: previous?.createdAt || savedAt,
+          updatedAt: savedAt,
+          lastWrongAt: savedAt,
+        });
+      }
+
+      return Array.from(map.values()).sort((a, b) =>
+        (b.lastWrongAt || b.updatedAt || "").localeCompare(a.lastWrongAt || a.updatedAt || "")
+      );
+    });
+  };
+
+  const gradeAll = () => {
+    const wrongResults = results.filter((r) => !r.correct);
+    setSubmitted(true);
+    setPendingWrongNoteResults(wrongResults);
+    setShowWrongNoteSaveModal(wrongResults.length > 0);
+  };
+
+  const savePendingWrongNoteResults = () => {
+    saveWrongResultsToNote(pendingWrongNoteResults);
+    setShowWrongNoteSaveModal(false);
+    setPendingWrongNoteResults([]);
+  };
+
+  const dismissWrongNoteSaveModal = () => {
+    setShowWrongNoteSaveModal(false);
+    setPendingWrongNoteResults([]);
+  };
+
+  const saveCurrentWrongResultsToNote = () => {
+    const wrongResults = results.filter((r) => !r.correct);
+    saveWrongResultsToNote(wrongResults);
+  };
 
   const toggleReview = (id) => {
     setOpenReviewIds((prev) => ({
@@ -265,6 +437,72 @@ export default function BiologyFillInQuiz() {
     setCopied(false);
   };
 
+  const updateWrongNoteItem = (id, updater) => {
+    persistWrongNoteItems((prev) =>
+      prev.map((item) => {
+        if (item.id !== id) return item;
+        const next = typeof updater === "function" ? updater(item) : { ...item, ...updater };
+        return {
+          ...next,
+          updatedAt: nowIso(),
+        };
+      })
+    );
+  };
+
+  const updateWrongNoteQuestion = (id, patch) => {
+    updateWrongNoteItem(id, (item) => ({
+      ...item,
+      question: {
+        ...item.question,
+        ...patch,
+      },
+    }));
+  };
+
+  const updateWrongNoteChoiceStem = (id, stem) => {
+    updateWrongNoteItem(id, (item) => {
+      const options = getChoiceOptions(item.question.prompt);
+      return {
+        ...item,
+        question: {
+          ...item.question,
+          prompt: [stem, ...options],
+        },
+      };
+    });
+  };
+
+  const updateWrongNoteChoiceOption = (id, optionIndex, value) => {
+    updateWrongNoteItem(id, (item) => {
+      const stem = getPromptStem(item.question.prompt);
+      const options = getChoiceOptions(item.question.prompt);
+      const nextOptions = [...options];
+      nextOptions[optionIndex] = value;
+      return {
+        ...item,
+        question: {
+          ...item.question,
+          prompt: [stem, ...nextOptions],
+        },
+      };
+    });
+  };
+
+  const deleteWrongNoteItem = (id) => {
+    persistWrongNoteItems((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const clearMasteredWrongNotes = () => {
+    persistWrongNoteItems((prev) => prev.filter((item) => !item.mastered));
+  };
+
+  const startWrongNoteMode = () => {
+    setSelectedFile(WRONG_NOTE_VALUE);
+    setRandomDrawVersion((prev) => prev + 1);
+    setShowWrongNoteManager(false);
+  };
+
   const resetAll = () => {
     setUserAnswers(buildInitialAnswers(questions));
     setSubmitted(false);
@@ -273,6 +511,8 @@ export default function BiologyFillInQuiz() {
     setReviewEdits({});
     setManualGrades({});
     setOpenReviewIds({});
+    setPendingWrongNoteResults([]);
+    setShowWrongNoteSaveModal(false);
   };
 
   const fillSample = () => {
@@ -327,6 +567,14 @@ export default function BiologyFillInQuiz() {
                   <p className="mt-2 text-sm text-slate-600">
                     문제 파일 하나를 선택하거나, 전체 JSON에서 랜덤으로 원하는 수만큼 뽑아 풀 수 있습니다.
                   </p>
+                  <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-600">
+                    <span className="rounded-full bg-white px-3 py-1 ring-1 ring-slate-200">
+                      오답노트 {activeWrongNoteItems.length}개
+                    </span>
+                    <span className="rounded-full bg-white px-3 py-1 ring-1 ring-slate-200">
+                      정복 {masteredWrongNoteCount}개
+                    </span>
+                  </div>
                 </div>
 
                 <div className="flex flex-wrap gap-2">
@@ -370,10 +618,18 @@ export default function BiologyFillInQuiz() {
                   >
                     {isShuffled ? "기본 순서" : "셔플"}
                   </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowWrongNoteManager((v) => !v)}
+                    className="rounded-xl"
+                  >
+                    <BookOpen className="mr-2 h-4 w-4" />
+                    오답노트 관리
+                  </Button>
                 </div>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_220px]">
+              <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_170px_220px]">
                 <div>
                   <label className="mb-2 block text-sm font-medium text-slate-700">
                     문제 파일 선택
@@ -384,12 +640,35 @@ export default function BiologyFillInQuiz() {
                     className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none"
                   >
                     <option value={ALL_RANDOM_VALUE}>전체 랜덤</option>
+                    <option value={WRONG_NOTE_VALUE}>오답노트</option>
                     {fileOptions.map((file) => (
                       <option key={file.value} value={file.value}>
                         {file.label}
                       </option>
                     ))}
                   </select>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-700">
+                    파일 랜덤
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setIsRandomSubset((v) => !v)}
+                    disabled={isAllRandomMode}
+                    className={`flex h-10 w-full items-center justify-center rounded-xl border px-3 text-sm transition ${
+                      isRandomDrawEnabled
+                        ? "border-slate-900 bg-slate-900 text-white"
+                        : "border-slate-300 bg-white text-slate-700 hover:border-slate-500"
+                    } disabled:cursor-not-allowed disabled:opacity-70`}
+                  >
+                    {isAllRandomMode
+                      ? "항상 랜덤"
+                      : isRandomSubset
+                        ? "랜덤 켜짐"
+                        : "전체 출제"}
+                  </button>
                 </div>
 
                 <div>
@@ -404,14 +683,14 @@ export default function BiologyFillInQuiz() {
                       onChange={(e) =>
                         setAllRandomCountInput(e.target.value.replace(/[^\d]/g, ""))
                       }
-                      disabled={!isAllRandomMode}
+                      disabled={!isRandomDrawEnabled}
                       className="h-10"
                     />
                     <Button
                       type="button"
                       variant="outline"
                       onClick={redrawAllRandomQuestions}
-                      disabled={!isAllRandomMode || loading}
+                      disabled={!isRandomDrawEnabled || loading}
                       className="rounded-xl"
                     >
                       다시 뽑기
@@ -425,6 +704,18 @@ export default function BiologyFillInQuiz() {
                   전체 {totalPoolSize}문제 중 {questions.length}문항을 랜덤으로 출제합니다.
                 </div>
               )}
+              {isWrongNoteMode && (
+                <div className="text-sm text-slate-600">
+                  {isRandomSubset
+                    ? `오답노트의 미정복 문제 ${totalPoolSize}개 중 ${questions.length}문항을 랜덤으로 출제합니다.`
+                    : `오답노트의 미정복 문제 ${totalPoolSize}개를 출제합니다.`}
+                </div>
+              )}
+              {!isAllRandomMode && !isWrongNoteMode && isRandomSubset && (
+                <div className="text-sm text-slate-600">
+                  선택한 파일의 {totalPoolSize}문제 중 {questions.length}문항을 랜덤으로 출제합니다.
+                </div>
+              )}
 
               <div className="max-w-sm">
                 <label className="mb-2 block text-sm font-medium text-slate-700">
@@ -433,7 +724,13 @@ export default function BiologyFillInQuiz() {
                 <div className="flex h-10 items-center rounded-xl border border-slate-300 bg-slate-50 px-3 text-sm text-slate-700">
                   {isAllRandomMode
                     ? `전체 랜덤 ${clampQuestionCount(requestedRandomCount, totalPoolSize || requestedRandomCount)}문항`
-                    : getFileLabel(selectedFile)}
+                    : isWrongNoteMode
+                      ? isRandomSubset
+                        ? `오답노트 랜덤 ${questions.length}/${totalPoolSize}문항`
+                        : `오답노트 ${totalPoolSize}문항`
+                    : isRandomSubset
+                      ? `${getFileLabel(selectedFile)} 랜덤 ${questions.length}/${totalPoolSize}문항`
+                      : getFileLabel(selectedFile)}
                 </div>
               </div>
             </div>
@@ -491,9 +788,332 @@ export default function BiologyFillInQuiz() {
                 리뷰 편집 내용을 반영해 오답 {wrongQuestions.length}개만 1번부터 다시 번호를
                 매겨 추출했습니다.
               </div>
+              <div className="mb-4 flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={saveCurrentWrongResultsToNote}
+                  className="rounded-xl"
+                  disabled={!wrongQuestions.length}
+                >
+                  현재 오답노트 등록
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={startWrongNoteMode}
+                  className="rounded-xl"
+                  disabled={!activeWrongNoteItems.length}
+                >
+                  오답노트만 풀기
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowWrongNoteManager(true)}
+                  className="rounded-xl"
+                >
+                  오답노트 관리
+                </Button>
+              </div>
               <pre className="max-h-[420px] overflow-auto rounded-2xl bg-slate-900 p-4 text-sm leading-6 text-slate-100">
                 <code>{wrongQuestionsJson}</code>
               </pre>
+            </CardContent>
+          </Card>
+        )}
+
+        {showWrongNoteSaveModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4">
+            <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-2xl">
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-rose-50 text-rose-700">
+                  <BookOpen className="h-5 w-5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-lg font-semibold text-slate-950">
+                    오답노트에 등록할까요?
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    이번 채점에서 틀린 문제 {pendingWrongNoteResults.length}개를 저장합니다.
+                    이미 저장된 문제는 중복 추가하지 않고 틀린 횟수와 마지막 답변만 갱신됩니다.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-4 max-h-56 overflow-auto rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div className="space-y-2">
+                  {pendingWrongNoteResults.slice(0, 8).map((question) => (
+                    <div
+                      key={question.questionKey}
+                      className="rounded-lg bg-white px-3 py-2 text-sm text-slate-700 ring-1 ring-slate-200"
+                    >
+                      <div className="text-xs font-semibold text-slate-500">
+                        {question.sourceFile} · 문항 {question.originalId}
+                      </div>
+                      <div className="mt-1 line-clamp-2">
+                        {getPromptStem(question.prompt)}
+                      </div>
+                    </div>
+                  ))}
+                  {pendingWrongNoteResults.length > 8 && (
+                    <div className="px-1 text-xs text-slate-500">
+                      외 {pendingWrongNoteResults.length - 8}개 더 있음
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={dismissWrongNoteSaveModal}
+                  className="rounded-xl"
+                >
+                  이번에는 저장 안 함
+                </Button>
+                <Button
+                  type="button"
+                  onClick={savePendingWrongNoteResults}
+                  className="rounded-xl"
+                >
+                  오답노트 등록
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showWrongNoteManager && (
+          <Card className="rounded-2xl shadow-sm">
+            <CardHeader>
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <CardTitle className="text-xl">오답노트 관리</CardTitle>
+                  <p className="mt-1 text-sm text-slate-600">
+                    저장된 오답을 앱 안에서 직접 수정하고, 다시 풀 문제와 정복한 문제를 나눠 관리합니다.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={startWrongNoteMode}
+                    disabled={!activeWrongNoteItems.length}
+                    className="rounded-xl"
+                  >
+                    미정복 오답 풀기
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={clearMasteredWrongNotes}
+                    disabled={!masteredWrongNoteCount}
+                    className="rounded-xl"
+                  >
+                    정복 항목 삭제
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-3 md:grid-cols-[180px_minmax(0,1fr)]">
+                <select
+                  value={wrongNoteFilter}
+                  onChange={(e) => setWrongNoteFilter(e.target.value)}
+                  className="h-10 rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none"
+                >
+                  <option value="active">미정복만</option>
+                  <option value="mastered">정복만</option>
+                  <option value="all">전체</option>
+                </select>
+                <Input
+                  value={wrongNoteSearch}
+                  onChange={(e) => setWrongNoteSearch(e.target.value)}
+                  placeholder="섹션, 문제, 메모, 파일명 검색"
+                  className="h-10"
+                />
+              </div>
+
+              {!wrongNoteItems.length && (
+                <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-600">
+                  아직 저장된 오답이 없습니다. 문제를 채점하면 틀린 문제가 자동으로 저장됩니다.
+                </div>
+              )}
+
+              {wrongNoteItems.length > 0 && !filteredWrongNoteItems.length && (
+                <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-600">
+                  현재 필터에 맞는 오답이 없습니다.
+                </div>
+              )}
+
+              {filteredWrongNoteItems.map((item) => {
+                const question = item.question;
+                const choiceOptions = getChoiceOptions(question.prompt);
+
+                return (
+                  <div
+                    key={item.id}
+                    className="rounded-2xl border border-slate-200 bg-white p-4"
+                  >
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                          <span className="rounded-full bg-slate-100 px-2 py-1">
+                            {question.sourceFile || "출처 없음"}
+                          </span>
+                          <span className="rounded-full bg-slate-100 px-2 py-1">
+                            {question.type}
+                          </span>
+                          <span className="rounded-full bg-rose-50 px-2 py-1 text-rose-700">
+                            오답 {item.wrongCount || 1}회
+                          </span>
+                          {item.mastered && (
+                            <span className="rounded-full bg-emerald-50 px-2 py-1 text-emerald-700">
+                              정복
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={item.mastered ? "secondary" : "outline"}
+                          onClick={() =>
+                            updateWrongNoteItem(item.id, {
+                              mastered: !item.mastered,
+                            })
+                          }
+                          className="rounded-xl"
+                        >
+                          {item.mastered ? "오답으로 되돌리기" : "정복 처리"}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="destructive"
+                          onClick={() => deleteWrongNoteItem(item.id)}
+                          className="rounded-xl"
+                        >
+                          <Trash2 className="mr-1 h-3.5 w-3.5" />
+                          삭제
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                      <div>
+                        <label className="mb-1 block text-xs font-semibold text-slate-600">
+                          섹션
+                        </label>
+                        <Input
+                          value={question.section || ""}
+                          onChange={(e) =>
+                            updateWrongNoteQuestion(item.id, { section: e.target.value })
+                          }
+                          className="h-9"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-semibold text-slate-600">
+                          개인 메모
+                        </label>
+                        <Input
+                          value={item.note || ""}
+                          onChange={(e) =>
+                            updateWrongNoteItem(item.id, { note: e.target.value })
+                          }
+                          placeholder="헷갈린 이유, 다시 볼 포인트"
+                          className="h-9"
+                        />
+                      </div>
+                    </div>
+
+                    {question.type === "choice" ? (
+                      <div className="mt-4 space-y-3">
+                        <div>
+                          <label className="mb-1 block text-xs font-semibold text-slate-600">
+                            문제 문장
+                          </label>
+                          <textarea
+                            value={getPromptStem(question.prompt)}
+                            onChange={(e) =>
+                              updateWrongNoteChoiceStem(item.id, e.target.value)
+                            }
+                            className="min-h-16 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm leading-6 outline-none focus:border-slate-500"
+                          />
+                        </div>
+                        <div className="grid gap-2">
+                          {choiceOptions.map((option, optionIndex) => (
+                            <label
+                              key={`${item.id}-option-${optionIndex}`}
+                              className="grid gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-[auto_minmax(0,1fr)] md:items-center"
+                            >
+                              <span className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                                <input
+                                  type="radio"
+                                  name={`wrong-note-answer-${item.id}`}
+                                  checked={Number(question.answers?.[0]) === optionIndex}
+                                  onChange={() =>
+                                    updateWrongNoteQuestion(item.id, {
+                                      answers: [optionIndex],
+                                    })
+                                  }
+                                />
+                                {optionIndex + 1}
+                              </span>
+                              <Input
+                                value={option}
+                                onChange={(e) =>
+                                  updateWrongNoteChoiceOption(
+                                    item.id,
+                                    optionIndex,
+                                    e.target.value
+                                  )
+                                }
+                                className="h-9 bg-white"
+                              />
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-4 grid gap-3 md:grid-cols-2">
+                        <div>
+                          <label className="mb-1 block text-xs font-semibold text-slate-600">
+                            문제 문장
+                          </label>
+                          <textarea
+                            value={promptToReviewText(question.prompt)}
+                            onChange={(e) =>
+                              updateWrongNoteQuestion(item.id, {
+                                prompt: parsePromptEdit(e.target.value, question.type),
+                              })
+                            }
+                            className="min-h-24 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm leading-6 outline-none focus:border-slate-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs font-semibold text-slate-600">
+                            답안 목록
+                          </label>
+                          <textarea
+                            value={answersToReviewText(question.answers)}
+                            onChange={(e) =>
+                              updateWrongNoteQuestion(item.id, {
+                                answers: parseReviewAnswers(e.target.value, question.type),
+                              })
+                            }
+                            className="min-h-24 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm leading-6 outline-none focus:border-slate-500"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </CardContent>
           </Card>
         )}
@@ -508,7 +1128,7 @@ export default function BiologyFillInQuiz() {
                       <div className="flex-1">
                         <div className="mb-2 text-sm font-semibold text-slate-500">
                           문항 {q.originalId}
-                          {isAllRandomMode && (
+                          {(isAllRandomMode || isWrongNoteMode) && (
                             <span className="ml-2 font-normal text-slate-400">
                               [{q.sourceFile}]
                             </span>
