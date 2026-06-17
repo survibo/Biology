@@ -41,6 +41,27 @@ const WRONG_NOTE_VALUE = "__wrong_note__";
 const WRONG_NOTE_STORAGE_KEY = "biology_wrong_note_v1";
 const QUIZ_DRAFT_STORAGE_KEY = "biology_quiz_draft_v1";
 const QUIZ_DRAFT_VERSION = 1;
+const INITIAL_CONSONANTS = [
+  "ㄱ",
+  "ㄲ",
+  "ㄴ",
+  "ㄷ",
+  "ㄸ",
+  "ㄹ",
+  "ㅁ",
+  "ㅂ",
+  "ㅃ",
+  "ㅅ",
+  "ㅆ",
+  "ㅇ",
+  "ㅈ",
+  "ㅉ",
+  "ㅊ",
+  "ㅋ",
+  "ㅌ",
+  "ㅍ",
+  "ㅎ",
+];
 
 function isWrongQuestionFile(path) {
   return path.endsWith(".wrong.js");
@@ -207,6 +228,30 @@ function maybeDrawRandomQuestions(items, enabled, count) {
   return shuffleArray(items).slice(0, clampQuestionCount(count, items.length));
 }
 
+function toInitialConsonants(text) {
+  return (text || "")
+    .toString()
+    .split("")
+    .map((char) => {
+      const code = char.charCodeAt(0);
+      if (code < 0xac00 || code > 0xd7a3) return char;
+      return INITIAL_CONSONANTS[Math.floor((code - 0xac00) / 588)] || char;
+    })
+    .join("");
+}
+
+function getInitialConsonantHint(question) {
+  if (question.type === "choice") {
+    return "";
+  }
+
+  if (question.type === "any") {
+    return toInitialConsonants(question.answers?.[0]);
+  }
+
+  return (question.answers || []).map(toInitialConsonants).join(", ");
+}
+
 const QuestionCard = memo(function QuestionCard({
   q,
   userAnswer,
@@ -214,11 +259,13 @@ const QuestionCard = memo(function QuestionCard({
   showAnswers,
   showSourceFile,
   isMenuOpen,
+  showInitialHint,
   isReviewOpen,
   reviewEdit,
   onAnswerChange,
   onToggleChoiceAnswer,
   onToggleQuestionMenu,
+  onShowInitialHint,
   onGradeSingleQuestion,
   onAddSingleQuestionToWrongNote,
   onToggleReview,
@@ -260,6 +307,15 @@ const QuestionCard = memo(function QuestionCard({
               </button>
               {isMenuOpen && (
                 <div className="absolute right-0 top-full z-30 mt-2 w-40 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 text-sm shadow-lg">
+                  {q.type !== "choice" && (
+                    <button
+                      type="button"
+                      onClick={() => onShowInitialHint(q.questionKey)}
+                      className="block w-full px-3 py-2 text-left text-slate-700 hover:bg-slate-50"
+                    >
+                      초성 보기
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => onGradeSingleQuestion(q.questionKey)}
@@ -315,10 +371,20 @@ const QuestionCard = memo(function QuestionCard({
                 })
               }
               placeholder={
-                q.type === "multi" ? `${q.answers.length}개, 쉼표로 구분` : "정답 입력"
+                q.type === "multi"
+                  ? `${q.answers.length}개, 쉼표로 구분`
+                  : "정답 입력"
               }
               className="mt-3 h-9"
             />
+          )}
+          {showInitialHint && (
+            <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              초성:{" "}
+              <span className="font-semibold">
+                {getInitialConsonantHint(q) || "표시할 초성이 없습니다"}
+              </span>
+            </div>
           )}
           {(showAnswers || (questionGraded && !q.correct)) && (
             <div className="mt-2 text-sm text-slate-600">
@@ -349,8 +415,12 @@ const QuestionCard = memo(function QuestionCard({
                   <Button
                     type="button"
                     size="sm"
-                    variant={q.manualGrade === "correct" ? "secondary" : "outline"}
-                    onClick={() => onUpdateManualGrade(q.questionKey, "correct")}
+                    variant={
+                      q.manualGrade === "correct" ? "secondary" : "outline"
+                    }
+                    onClick={() =>
+                      onUpdateManualGrade(q.questionKey, "correct")
+                    }
                     className="rounded-xl"
                   >
                     정답 고정
@@ -358,7 +428,9 @@ const QuestionCard = memo(function QuestionCard({
                   <Button
                     type="button"
                     size="sm"
-                    variant={q.manualGrade === "wrong" ? "destructive" : "outline"}
+                    variant={
+                      q.manualGrade === "wrong" ? "destructive" : "outline"
+                    }
                     onClick={() => onUpdateManualGrade(q.questionKey, "wrong")}
                     className="rounded-xl"
                   >
@@ -388,7 +460,9 @@ const QuestionCard = memo(function QuestionCard({
                 답안 목록
               </label>
               <textarea
-                value={reviewEdit?.answersText ?? answersToReviewText(q.answers)}
+                value={
+                  reviewEdit?.answersText ?? answersToReviewText(q.answers)
+                }
                 onChange={(e) =>
                   onUpdateReviewEdit(q.questionKey, {
                     answersText: e.target.value,
@@ -439,6 +513,7 @@ const QuestionCard = memo(function QuestionCard({
 export default function BiologyFillInQuiz() {
   const skipNextQuestionLoadRef = useRef(false);
   const draftNoticeTimeoutRef = useRef(null);
+  const initialHintTimeoutRef = useRef(null);
   const fileOptions = useMemo(() => {
     return Object.keys(questionModules)
       .sort()
@@ -461,6 +536,14 @@ export default function BiologyFillInQuiz() {
   const [pendingSelectedRandomFiles, setPendingSelectedRandomFiles] = useState(
     []
   );
+  const [
+    pendingSelectedRandomQuestionCount,
+    setPendingSelectedRandomQuestionCount,
+  ] = useState(0);
+  const [
+    pendingSelectedRandomQuestionCountLoading,
+    setPendingSelectedRandomQuestionCountLoading,
+  ] = useState(false);
   const [showSelectedFilesModal, setShowSelectedFilesModal] = useState(false);
 
   const [userAnswers, setUserAnswers] = useState({});
@@ -474,6 +557,7 @@ export default function BiologyFillInQuiz() {
   const [openReviewIds, setOpenReviewIds] = useState({});
   const [singleGradedIds, setSingleGradedIds] = useState({});
   const [openQuestionMenuId, setOpenQuestionMenuId] = useState("");
+  const [initialHintQuestionId, setInitialHintQuestionId] = useState("");
   const [wrongNoteItems, setWrongNoteItems] = useState(loadWrongNoteItems);
   const [wrongNoteSolveSources, setWrongNoteSolveSources] = useState([]);
   const [pendingWrongNoteSolveSources, setPendingWrongNoteSolveSources] =
@@ -623,6 +707,7 @@ export default function BiologyFillInQuiz() {
         setOpenReviewIds({});
         setSingleGradedIds({});
         setOpenQuestionMenuId("");
+        setInitialHintQuestionId("");
         setPendingWrongNoteResults([]);
         setShowWrongNoteSaveModal(false);
       } catch (err) {
@@ -637,6 +722,7 @@ export default function BiologyFillInQuiz() {
         setOpenReviewIds({});
         setSingleGradedIds({});
         setOpenQuestionMenuId("");
+        setInitialHintQuestionId("");
         setPendingWrongNoteResults([]);
         setShowWrongNoteSaveModal(false);
       } finally {
@@ -659,8 +745,58 @@ export default function BiologyFillInQuiz() {
       if (draftNoticeTimeoutRef.current) {
         window.clearTimeout(draftNoticeTimeoutRef.current);
       }
+      if (initialHintTimeoutRef.current) {
+        window.clearTimeout(initialHintTimeoutRef.current);
+      }
     };
   }, []);
+
+  useEffect(() => {
+    if (!showSelectedFilesModal) return;
+
+    let cancelled = false;
+
+    async function countPendingSelectedRandomQuestions() {
+      if (!pendingSelectedRandomFiles.length) {
+        setPendingSelectedRandomQuestionCount(0);
+        setPendingSelectedRandomQuestionCountLoading(false);
+        return;
+      }
+
+      setPendingSelectedRandomQuestionCountLoading(true);
+      try {
+        const modules = await Promise.all(
+          pendingSelectedRandomFiles
+            .filter((path) => questionModules[path])
+            .map((path) => questionModules[path]())
+        );
+        if (!cancelled) {
+          setPendingSelectedRandomQuestionCount(
+            modules.reduce(
+              (sum, mod) =>
+                sum + (Array.isArray(mod.questions) ? mod.questions.length : 0),
+              0
+            )
+          );
+        }
+      } catch (err) {
+        console.error("선택 파일 문제 수 계산 실패:", err);
+        if (!cancelled) {
+          setPendingSelectedRandomQuestionCount(0);
+        }
+      } finally {
+        if (!cancelled) {
+          setPendingSelectedRandomQuestionCountLoading(false);
+        }
+      }
+    }
+
+    countPendingSelectedRandomQuestions();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pendingSelectedRandomFiles, showSelectedFilesModal]);
 
   const hasGradedQuestions =
     submitted || Object.keys(singleGradedIds).length > 0;
@@ -858,36 +994,39 @@ export default function BiologyFillInQuiz() {
     });
   }, []);
 
-  const saveWrongResultsToNote = useCallback((wrongResults) => {
-    if (!wrongResults.length) return;
+  const saveWrongResultsToNote = useCallback(
+    (wrongResults) => {
+      if (!wrongResults.length) return;
 
-    const savedAt = nowIso();
-    persistWrongNoteItems((prev) => {
-      const map = new Map(prev.map((item) => [item.id, item]));
+      const savedAt = nowIso();
+      persistWrongNoteItems((prev) => {
+        const map = new Map(prev.map((item) => [item.id, item]));
 
-      for (const question of wrongResults) {
-        const id = question.wrongNoteId || getWrongNoteId(question);
-        const previous = map.get(id);
-        map.set(id, {
-          id,
-          question: toStoredQuestion(question),
-          note: previous?.note || "",
-          mastered: false,
-          wrongCount: (previous?.wrongCount || 0) + 1,
-          lastUserAnswer: question.userAnswer || "",
-          createdAt: previous?.createdAt || savedAt,
-          updatedAt: savedAt,
-          lastWrongAt: savedAt,
-        });
-      }
+        for (const question of wrongResults) {
+          const id = question.wrongNoteId || getWrongNoteId(question);
+          const previous = map.get(id);
+          map.set(id, {
+            id,
+            question: toStoredQuestion(question),
+            note: previous?.note || "",
+            mastered: false,
+            wrongCount: (previous?.wrongCount || 0) + 1,
+            lastUserAnswer: question.userAnswer || "",
+            createdAt: previous?.createdAt || savedAt,
+            updatedAt: savedAt,
+            lastWrongAt: savedAt,
+          });
+        }
 
-      return Array.from(map.values()).sort((a, b) =>
-        (b.lastWrongAt || b.updatedAt || "").localeCompare(
-          a.lastWrongAt || a.updatedAt || ""
-        )
-      );
-    });
-  }, [persistWrongNoteItems]);
+        return Array.from(map.values()).sort((a, b) =>
+          (b.lastWrongAt || b.updatedAt || "").localeCompare(
+            a.lastWrongAt || a.updatedAt || ""
+          )
+        );
+      });
+    },
+    [persistWrongNoteItems]
+  );
 
   const gradeAll = () => {
     const calculatedResults = questions.map((q) =>
@@ -940,6 +1079,18 @@ export default function BiologyFillInQuiz() {
     setOpenQuestionMenuId((prev) => (prev === id ? "" : id));
   }, []);
 
+  const showInitialHintForQuestion = useCallback((id) => {
+    if (initialHintTimeoutRef.current) {
+      window.clearTimeout(initialHintTimeoutRef.current);
+    }
+    setInitialHintQuestionId(id);
+    setOpenQuestionMenuId("");
+    initialHintTimeoutRef.current = window.setTimeout(() => {
+      setInitialHintQuestionId("");
+      initialHintTimeoutRef.current = null;
+    }, 3000);
+  }, []);
+
   const gradeSingleQuestion = useCallback((id) => {
     setSingleGradedIds((prev) => ({
       ...prev,
@@ -948,10 +1099,13 @@ export default function BiologyFillInQuiz() {
     setOpenQuestionMenuId("");
   }, []);
 
-  const addSingleQuestionToWrongNote = useCallback((question) => {
-    saveWrongResultsToNote([question]);
-    setOpenQuestionMenuId("");
-  }, [saveWrongResultsToNote]);
+  const addSingleQuestionToWrongNote = useCallback(
+    (question) => {
+      saveWrongResultsToNote([question]);
+      setOpenQuestionMenuId("");
+    },
+    [saveWrongResultsToNote]
+  );
 
   const updateReviewEdit = useCallback((id, patch) => {
     setReviewEdits((prev) => ({
@@ -1447,11 +1601,11 @@ export default function BiologyFillInQuiz() {
                 !isSelectedFilesRandomMode &&
                 !isWrongNoteMode &&
                 isRandomSubset && (
-                <div className="text-sm text-slate-600">
-                  선택한 파일의 {totalPoolSize}문제 중 {questions.length}문항을
-                  랜덤으로 출제합니다.
-                </div>
-              )}
+                  <div className="text-sm text-slate-600">
+                    선택한 파일의 {totalPoolSize}문제 중 {questions.length}
+                    문항을 랜덤으로 출제합니다.
+                  </div>
+                )}
               {draftSavedAt && (
                 <div className="text-xs font-medium text-slate-500">
                   마지막 임시저장: {formatDraftSavedAt(draftSavedAt)}
@@ -1700,7 +1854,10 @@ export default function BiologyFillInQuiz() {
 
               <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div className="text-sm text-slate-600">
-                  선택한 파일 {pendingSelectedRandomFiles.length}개
+                  선택한 파일 {pendingSelectedRandomFiles.length}개 · 총 문제{" "}
+                  {pendingSelectedRandomQuestionCountLoading
+                    ? "계산 중"
+                    : `${pendingSelectedRandomQuestionCount}개`}
                 </div>
                 <div className="flex justify-end gap-2">
                   <Button
@@ -2152,13 +2309,19 @@ export default function BiologyFillInQuiz() {
                       isWrongNoteMode
                     }
                     isMenuOpen={openQuestionMenuId === q.questionKey}
+                    showInitialHint={
+                      initialHintQuestionId === q.questionKey
+                    }
                     isReviewOpen={Boolean(openReviewIds[q.questionKey])}
                     reviewEdit={reviewEdits[q.questionKey]}
                     onAnswerChange={handleChange}
                     onToggleChoiceAnswer={toggleChoiceAnswer}
                     onToggleQuestionMenu={toggleQuestionMenu}
+                    onShowInitialHint={showInitialHintForQuestion}
                     onGradeSingleQuestion={gradeSingleQuestion}
-                    onAddSingleQuestionToWrongNote={addSingleQuestionToWrongNote}
+                    onAddSingleQuestionToWrongNote={
+                      addSingleQuestionToWrongNote
+                    }
                     onToggleReview={toggleReview}
                     onUpdateManualGrade={updateManualGrade}
                     onUpdateReviewEdit={updateReviewEdit}
