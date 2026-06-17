@@ -1215,6 +1215,7 @@ export default function BiologyFillInQuiz() {
                                 onClick={() => toggleQuestionMenu(q.questionKey)}
                                 className="flex h-9 min-w-9 items-center justify-center rounded-full border border-slate-300 bg-slate-100 px-2 text-lg font-bold leading-none text-slate-900 shadow-sm transition hover:border-slate-500 hover:bg-slate-200"
                                 aria-label="문제 메뉴"
+                                tabIndex={-1}
                               >
                                 ...
                               </button>
