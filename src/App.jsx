@@ -21,6 +21,7 @@ import {
   Trash2,
   Save,
   FolderOpen,
+  ArrowUp,
 } from "lucide-react";
 import {
   answersToReviewText,
@@ -1211,6 +1212,19 @@ export default function BiologyFillInQuiz() {
     }
   };
 
+  const scrollToTop = useCallback(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
+  const saveDraftButtonLabel =
+    draftNotice === "임시저장됨" || draftNotice === "저장 실패"
+      ? draftNotice
+      : "임시저장";
+  const loadDraftButtonLabel =
+    draftNotice === "불러옴" || draftNotice === "저장 없음"
+      ? draftNotice
+      : "불러오기";
+
   return (
     <div className="min-h-screen bg-slate-50 p-4 md:p-8">
       <div className="fixed right-4 top-4 z-40 flex flex-col gap-2 rounded-2xl border border-slate-200 bg-white/90 p-2 shadow-lg backdrop-blur">
@@ -1223,7 +1237,7 @@ export default function BiologyFillInQuiz() {
           disabled={loading || !questions.length}
         >
           <Save className="mr-1.5 h-4 w-4" />
-          임시저장
+          {saveDraftButtonLabel}
         </Button>
         <Button
           type="button"
@@ -1234,9 +1248,18 @@ export default function BiologyFillInQuiz() {
           disabled={!draftSavedAt}
         >
           <FolderOpen className="mr-1.5 h-4 w-4" />
-          불러오기
+          {loadDraftButtonLabel}
         </Button>
       </div>
+      <Button
+        type="button"
+        variant="secondary"
+        onClick={scrollToTop}
+        className="fixed bottom-4 right-4 z-40 size-11 rounded-full p-0 shadow-lg"
+        aria-label="맨 위로 이동"
+      >
+        <ArrowUp className="h-5 w-5" />
+      </Button>
       <div className="mx-auto max-w-6xl space-y-6">
         <Card className="rounded-2xl shadow-sm">
           <CardHeader>
@@ -1323,7 +1346,6 @@ export default function BiologyFillInQuiz() {
                     onChange={(e) => handleSelectedFileChange(e.target.value)}
                     className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none"
                   >
-                    <option value={ALL_RANDOM_VALUE}>전체 랜덤</option>
                     <option value={SELECTED_FILES_RANDOM_VALUE}>
                       선택 파일 랜덤
                     </option>
@@ -1430,10 +1452,9 @@ export default function BiologyFillInQuiz() {
                   랜덤으로 출제합니다.
                 </div>
               )}
-              {(draftNotice || draftSavedAt) && (
+              {draftSavedAt && (
                 <div className="text-xs font-medium text-slate-500">
-                  {draftNotice ||
-                    `마지막 임시저장: ${formatDraftSavedAt(draftSavedAt)}`}
+                  마지막 임시저장: {formatDraftSavedAt(draftSavedAt)}
                 </div>
               )}
 
@@ -1592,7 +1613,7 @@ export default function BiologyFillInQuiz() {
                     체크한 파일들의 문제를 합친 뒤 랜덤 출제 수만큼 뽑습니다.
                   </p>
                 </div>
-                <div className="flex shrink-0 gap-2">
+                <div className="flex shrink-0 flex-wrap gap-2">
                   <Button
                     type="button"
                     size="sm"
@@ -1605,6 +1626,36 @@ export default function BiologyFillInQuiz() {
                     className="rounded-xl"
                   >
                     전체 선택
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      setPendingSelectedRandomFiles(
+                        fileOptions
+                          .filter((file) => !file.label.includes("("))
+                          .map((file) => file.value)
+                      )
+                    }
+                    className="rounded-xl"
+                  >
+                    choice만
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      setPendingSelectedRandomFiles(
+                        fileOptions
+                          .filter((file) => file.label.includes("("))
+                          .map((file) => file.value)
+                      )
+                    }
+                    className="rounded-xl"
+                  >
+                    객관식만
                   </Button>
                   <Button
                     type="button"
