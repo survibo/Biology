@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,8 @@ import {
   Copy,
   BookOpen,
   Trash2,
+  Save,
+  FolderOpen,
 } from "lucide-react";
 import {
   answersToReviewText,
@@ -28,6 +30,8 @@ const questionModules = import.meta.glob("./json/*.js");
 const ALL_RANDOM_VALUE = "__all_random__";
 const WRONG_NOTE_VALUE = "__wrong_note__";
 const WRONG_NOTE_STORAGE_KEY = "biology_wrong_note_v1";
+const QUIZ_DRAFT_STORAGE_KEY = "biology_quiz_draft_v1";
+const QUIZ_DRAFT_VERSION = 1;
 
 function isWrongQuestionFile(path) {
   return path.endsWith(".wrong.js");
@@ -71,6 +75,40 @@ function loadWrongNoteItems() {
 function saveWrongNoteItems(items) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(WRONG_NOTE_STORAGE_KEY, JSON.stringify(items));
+}
+
+function loadQuizDraft() {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = window.localStorage.getItem(QUIZ_DRAFT_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (
+      !parsed ||
+      parsed.version !== QUIZ_DRAFT_VERSION ||
+      !Array.isArray(parsed.questions)
+    ) {
+      return null;
+    }
+    return parsed;
+  } catch (err) {
+    console.error("임시저장 로드 실패:", err);
+    return null;
+  }
+}
+
+function formatDraftSavedAt(value) {
+  if (!value) return "";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  return date.toLocaleString("ko-KR", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function getWrongNoteId(question) {
@@ -122,6 +160,8 @@ function maybeDrawRandomQuestions(items, enabled, count) {
 }
 
 export default function BiologyFillInQuiz() {
+  const skipNextQuestionLoadRef = useRef(false);
+  const draftNoticeTimeoutRef = useRef(null);
   const fileOptions = useMemo(() => {
     return Object.keys(questionModules)
       .sort()
@@ -158,6 +198,10 @@ export default function BiologyFillInQuiz() {
   const [wrongNoteSearch, setWrongNoteSearch] = useState("");
   const [pendingWrongNoteResults, setPendingWrongNoteResults] = useState([]);
   const [showWrongNoteSaveModal, setShowWrongNoteSaveModal] = useState(false);
+  const [draftSavedAt, setDraftSavedAt] = useState(
+    () => loadQuizDraft()?.savedAt || ""
+  );
+  const [draftNotice, setDraftNotice] = useState("");
   const isAllRandomMode = selectedFile === ALL_RANDOM_VALUE;
   const isWrongNoteMode = selectedFile === WRONG_NOTE_VALUE;
   const isRandomDrawEnabled = isAllRandomMode || isRandomSubset;
@@ -173,6 +217,19 @@ export default function BiologyFillInQuiz() {
   }, [allRandomCountInput]);
 
   useEffect(() => {
+    const skippedLoad = skipNextQuestionLoadRef.current;
+    if (skippedLoad) {
+      skipNextQuestionLoadRef.current = null;
+      if (
+        skippedLoad.selectedFile === selectedFile &&
+        skippedLoad.isRandomSubset === isRandomSubset &&
+        skippedLoad.requestedRandomCount === requestedRandomCount &&
+        skippedLoad.randomDrawVersion === randomDrawVersion
+      ) {
+        return;
+      }
+    }
+
     async function loadQuestions() {
       if (!selectedFile) return;
 
@@ -261,6 +318,14 @@ export default function BiologyFillInQuiz() {
 
     loadQuestions();
   }, [isRandomSubset, selectedFile, requestedRandomCount, randomDrawVersion]);
+
+  useEffect(() => {
+    return () => {
+      if (draftNoticeTimeoutRef.current) {
+        window.clearTimeout(draftNoticeTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const results = useMemo(() => {
     return questions.map((q) => {
@@ -576,6 +641,112 @@ export default function BiologyFillInQuiz() {
     setRandomDrawVersion((prev) => prev + 1);
   };
 
+  const showDraftNotice = (message) => {
+    setDraftNotice(message);
+    if (draftNoticeTimeoutRef.current) {
+      window.clearTimeout(draftNoticeTimeoutRef.current);
+    }
+    draftNoticeTimeoutRef.current = window.setTimeout(() => {
+      setDraftNotice("");
+    }, 2200);
+  };
+
+  const saveQuizDraft = () => {
+    const savedAt = nowIso();
+    const draft = {
+      version: QUIZ_DRAFT_VERSION,
+      savedAt,
+      selectedFile,
+      questions,
+      totalPoolSize,
+      allRandomCountInput,
+      randomDrawVersion,
+      isRandomSubset,
+      userAnswers,
+      submitted,
+      showAnswers,
+      isShuffled,
+      shuffledQuestionIds,
+      reviewEdits,
+      manualGrades,
+      openReviewIds,
+      singleGradedIds,
+    };
+
+    try {
+      window.localStorage.setItem(
+        QUIZ_DRAFT_STORAGE_KEY,
+        JSON.stringify(draft)
+      );
+      setDraftSavedAt(savedAt);
+      showDraftNotice("임시저장됨");
+    } catch (err) {
+      console.error("임시저장 실패:", err);
+      showDraftNotice("저장 실패");
+    }
+  };
+
+  const loadSavedQuizDraft = () => {
+    const draft = loadQuizDraft();
+    if (!draft) {
+      showDraftNotice("저장 없음");
+      return;
+    }
+
+    const restoredSelectedFile = draft.selectedFile || fileOptions[0]?.value || "";
+    const restoredAllRandomCountInput = draft.allRandomCountInput || "20";
+    const parsedRequestedCount = Number.parseInt(
+      restoredAllRandomCountInput,
+      10
+    );
+    const restoredRequestedRandomCount =
+      Number.isFinite(parsedRequestedCount) && parsedRequestedCount > 0
+        ? parsedRequestedCount
+        : 1;
+    const restoredRandomDrawVersion = Number.isFinite(
+      draft.randomDrawVersion
+    )
+      ? draft.randomDrawVersion
+      : 0;
+    const restoredIsRandomSubset = Boolean(draft.isRandomSubset);
+
+    skipNextQuestionLoadRef.current = {
+      selectedFile: restoredSelectedFile,
+      isRandomSubset: restoredIsRandomSubset,
+      requestedRandomCount: restoredRequestedRandomCount,
+      randomDrawVersion: restoredRandomDrawVersion,
+    };
+
+    setSelectedFile(restoredSelectedFile);
+    setQuestions(draft.questions);
+    setLoading(false);
+    setTotalPoolSize(
+      Number.isFinite(draft.totalPoolSize)
+        ? draft.totalPoolSize
+        : draft.questions.length
+    );
+    setAllRandomCountInput(restoredAllRandomCountInput);
+    setRandomDrawVersion(restoredRandomDrawVersion);
+    setIsRandomSubset(restoredIsRandomSubset);
+    setUserAnswers(draft.userAnswers || buildInitialAnswers(draft.questions));
+    setSubmitted(Boolean(draft.submitted));
+    setShowAnswers(Boolean(draft.showAnswers));
+    setCopied(false);
+    setIsShuffled(Boolean(draft.isShuffled));
+    setShuffledQuestionIds(
+      Array.isArray(draft.shuffledQuestionIds) ? draft.shuffledQuestionIds : []
+    );
+    setReviewEdits(draft.reviewEdits || {});
+    setManualGrades(draft.manualGrades || {});
+    setOpenReviewIds(draft.openReviewIds || {});
+    setSingleGradedIds(draft.singleGradedIds || {});
+    setOpenQuestionMenuId("");
+    setPendingWrongNoteResults([]);
+    setShowWrongNoteSaveModal(false);
+    setDraftSavedAt(draft.savedAt || "");
+    showDraftNotice("불러옴");
+  };
+
   const copyWrongQuestionsJson = async () => {
     try {
       await navigator.clipboard.writeText(wrongQuestionsJson);
@@ -597,10 +768,6 @@ export default function BiologyFillInQuiz() {
                   <CardTitle className="text-3xl font-bold tracking-tight">
                     생명과학 단답·빈칸·객관식
                   </CardTitle>
-                  <p className="mt-2 text-sm text-slate-600">
-                    문제 파일 하나를 선택하거나, 전체 JSON에서 랜덤으로 원하는
-                    수만큼 뽑아 풀 수 있습니다.
-                  </p>
                   <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-600">
                     <span className="rounded-full bg-white px-3 py-1 ring-1 ring-slate-200">
                       오답노트 {activeWrongNoteItems.length}개
@@ -655,6 +822,26 @@ export default function BiologyFillInQuiz() {
                   >
                     <BookOpen className="mr-2 h-4 w-4" />
                     오답노트 관리
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={saveQuizDraft}
+                    className="rounded-xl"
+                    disabled={loading || !questions.length}
+                  >
+                    <Save className="mr-2 h-4 w-4" />
+                    임시저장
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={loadSavedQuizDraft}
+                    className="rounded-xl"
+                    disabled={!draftSavedAt}
+                  >
+                    <FolderOpen className="mr-2 h-4 w-4" />
+                    불러오기
                   </Button>
                 </div>
               </div>
@@ -748,6 +935,12 @@ export default function BiologyFillInQuiz() {
                 <div className="text-sm text-slate-600">
                   선택한 파일의 {totalPoolSize}문제 중 {questions.length}문항을
                   랜덤으로 출제합니다.
+                </div>
+              )}
+              {(draftNotice || draftSavedAt) && (
+                <div className="text-xs font-medium text-slate-500">
+                  {draftNotice ||
+                    `마지막 임시저장: ${formatDraftSavedAt(draftSavedAt)}`}
                 </div>
               )}
 
@@ -1213,7 +1406,7 @@ export default function BiologyFillInQuiz() {
                               <button
                                 type="button"
                                 onClick={() => toggleQuestionMenu(q.questionKey)}
-                                className="flex h-9 min-w-9 items-center justify-center rounded-full border border-slate-300 bg-slate-100 px-2 text-lg font-bold leading-none text-slate-900 shadow-sm transition hover:border-slate-500 hover:bg-slate-200"
+                                className="flex h-9 min-w-9 items-center justify-center rounded-full px-2 text-lg font-bold leading-none text-slate-900  transition hover:border-slate-500 hover:bg-slate-200"
                                 aria-label="문제 메뉴"
                                 tabIndex={-1}
                               >
